@@ -208,10 +208,13 @@ app.get('/api/events', async (_req, reply: FastifyReply) => {
 
 // ---------- web app ----------
 if (fs.existsSync(WEB_DIR)) {
-  await app.register(fastifyStatic, { root: WEB_DIR, wildcard: false });
+  // wildcard (the default) looks files up on each request, so a rebuild while Bottle is running
+  // (new hashed asset names) is served correctly instead of falling through to index.html.
+  await app.register(fastifyStatic, { root: WEB_DIR });
   app.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith('/api/') || req.method !== 'GET') return reply.code(404).send({ error: 'Not found' });
-    return reply.sendFile('index.html');
+    // A missing script/style must 404, never get index.html (that renders a silent black page).
+    if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.method !== 'GET') return reply.code(404).send({ error: 'Not found' });
+    return reply.header('cache-control', 'no-cache').sendFile('index.html');
   });
 }
 
