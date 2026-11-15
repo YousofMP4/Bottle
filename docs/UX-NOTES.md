@@ -1,50 +1,98 @@
-# UX notes — studying Flask (flask.do)
+# UX notes: studying Flask (flask.do)
 
-> flask.do could not be loaded from the build sandbox (DNS blocked by the network policy), so these
-> notes come from a screenshot of Flask's review screen plus its public product descriptions.
-> Animation timings below are *our* choices to hit the same feel, not measured values.
+Studied on 2026-11-15 in a real browser, signed in to a Flask workspace, plus the interactive demo on the
+landing page. Everything below was **measured** from computed styles and Flask's shipped stylesheet unless it
+says "observed". We copy the *feel*: timings, easing, densities, state logic. Never Flask's name, logo, colors
+of its brand, icons, copy or assets. No Flask screenshots are committed (they contain Flask branding and a
+real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
 
-## What Flask is
-Video feedback for creative teams and agents: reviewer talks over the video, draws on frames,
-leaves timestamped notes; the agent receives transcribed text and uploads a new version to the same link.
+## 1. Design tokens (measured)
 
-## Layout (review screen)
-- **Left rail (~260px)**: wordmark, workspace switcher, `+ New`, `Assets`, divider, list of recent
-  videos (tiny poster square + truncated title, active row = soft filled pill). Bottom: upgrade, user + gear.
-- **Main = an inset panel**: ~8px gap from window edges, ~14px radius, 1px hairline border, one shade
-  lighter than the window. Everything else lives inside it.
-- **Top bar** inside panel: breadcrumb `Assets › Title` + `…` menu. Right side: round icon buttons
-  (download, link) and one light pill CTA (`Share`). The only "loud" element is that white pill.
-- **Stage**: video centered and letterboxed on near-black, rounded corners (~10px). A panel toggle sits
-  top-right of the stage (side panel is hidden by default — zero clutter).
-- **Feedback bar** directly under the video, same width as the video: left segment is a
-  voice/feedback mode button with a dot-matrix waveform glyph + chevron; right segment is a
-  `Type..` input with a circular send arrow. Feedback is *the* primary action, attached to the video.
-- **Transport bar** at the very bottom, one row: `Versions` pill above-left, then round play button,
-  `v6` version chip, monospaced `0:12/0:32` timecode, a thin full-width scrubber with a white knob,
-  then `−` / `+` (frame/zoom steps), `1x` speed chip, volume, settings.
+| Token | Flask value | What it is |
+|---|---|---|
+| Window | `rgb(12,12,12)` | page background |
+| Surfaces | 18 / 24 / 31 / 42 (gray) | panel, raised, popover, hover fill |
+| Text | 250 · 160 · 111 · 80 | primary, secondary, tertiary, faint |
+| Hairlines | 28 / 40 / 51, usually drawn at **0.5px** | `inset 0 0 0 .5px` rings, not borders |
+| Control fill | `rgba(160,160,160,.063)` | every secondary/icon button |
+| Control text | white @ .70 → **.95 on hover** | icons are dimmed until hovered |
+| Hover / pressed / selected fills | white @ .058 / .097 / .146 | rows & ghost buttons |
+| Row hover | white @ .034 | list rows |
+| Focus ring | `rgba(173,173,173,.5)`, 2px, **only for keyboard users** (`:root[data-tab-focus]`) | mouse clicks never show a ring |
+| Radius | 12px panels/menus/tooltips, 10px menu rows, pill (9999px) for every control | |
+| Font | `ui-sans-serif, system-ui` 14px; titles 14px with `-0.35px` tracking; time is mono | |
 
-## Visual language
-- Monochrome: window ~#0b0b0b, panel ~#111, controls ~#1c1c1c, hairlines white @ 6–8%.
-- Text: white for primary, ~55% gray for secondary (breadcrumb root, placeholders).
-- Primary CTA = light gray/white pill with dark text. Everything else is ghost/icon buttons.
-- Round shapes: circular icon buttons (36px), pill chips, generous padding, no shadows on chrome.
-- Monospace only for time. System sans everywhere else, medium weight for titles.
+## 2. Motion (measured)
 
-## Interactions to match (feel, not pixels)
-- Feedback is reachable without leaving the video: type and the video pauses; talk and it records.
-- Versions are a first-class chip next to play, not buried in a menu.
-- The side panel is opt-in; the default view is just video + feedback bar + transport.
+- **Default ease:** `--ease-out: cubic-bezier(.23, 1, .32, 1)`. In-out: `cubic-bezier(.77, 0, .175, 1)`.
+- **Hover color/background:** **150ms** with the ease-out (38 of ~50 transition rules in the stylesheet are 150ms).
+- **Primary button glow/shadow:** 280ms ease-out. A radial "light" (`::before`, 90px radius) follows the pointer
+  and expands to 220px over 900ms while pressed.
+- **Press:** pills move down `translateY(1px)` with a flatter shadow; destructive buttons `scale(.97)`; small icon
+  buttons `scale(.94–.96)`. Transform transition **150ms** ease-out, so press feels instant.
+- **Tooltips (Radix):** enter = `fade-in + zoom-in-95 + 8px slide from the trigger side`, **150ms**. Exit is
+  immediate. Delay: **0ms** in the sidebar (`instant-open`), **700ms** on transport buttons (`delayed-open`), and
+  once one tooltip is open, neighbours open instantly (skip-delay). An arrow (12×7.5) points at the trigger.
+- **Keycap in tooltips:** 20px keycap with a 2.5px bottom border, animates a "press" (`translateY(1px)`,
+  border 2.5→1.5px) **twice**, 450ms each, starting 150ms after the tooltip appears. Disabled under reduced motion.
+- **Toasts (Sonner):** top-center, 22px radius, `12px 16px` padding, icon + title + gray subtitle.
+  `transform .45s cubic-bezier(.34,1.5,.64,1)` (a small overshoot), `opacity .25s` ease-out,
+  `height .4s cubic-bezier(.87,0,.13,1)` when stacking.
+- **Error nudge:** horizontal shake keyframes `-4, 3.5, -2.5, 1.5, -0.5px` (damped).
+- **Live dots:** recording LED pulses `opacity 1↔.35, scale 1.15↔.85`; loading uses dot "chase/dance" loops.
 
-## Bottle's motion spec (our choices)
+## 3. Layout (observed + measured)
+
+- Left rail with the wordmark, two 28px round icon buttons (collapse sidebar `S`, search `⌘K`), team switcher,
+  `New`, `Assets`, a divider, then recent videos (16px thumb + title + `v6` chip). Bottom: Upgrade, account, gear.
+- Main panel is inset ~8px from the window with a 12px radius and a 0.5px ring.
+- **Top bar:** breadcrumb (`team › title` + `…` menu) left; right: 32px round Download, Copy Link, and the one
+  light primary pill (`Share`).
+- **Stage:** video centered, rounded ~10px. A 32px panel-toggle sits top-right of the stage.
+- **Feedback bar** under the video, same width as the video: `[dot-matrix glyph] Give Feedback ⌄ | Type.. (→)`,
+  46px tall, 10px inner radius. Focusing it grows it into a multi-line card with a pencil tool, `+` attach and a
+  bright send arrow; a draft marker (avatar, `0:08`, tag) appears above the playhead.
+- **Transport:** `Versions` pill above-left; then 32px Play, `v6` chip, mono `0:08/0:32`, a full-width scrubber
+  with a white knob, then `− +` (timeline zoom, joined pill), `1x`, volume (hover reveals a vertical slider),
+  view options.
+- **Comments panel** (toggle): `Feedback | Context` segmented pills + filter button. Empty state is a single
+  centered gray line, "No Feedback Yet". No illustration.
+- **Narrow window (560px):** everything stacks: video, then the panel, then the scrubber full-width with controls
+  under it, then a large centered "Give Feedback" pill at the very bottom. Top-bar actions collapse into `…`.
+
+## 4. Interactions (observed)
+
+- Every icon-only control has a Title Case `aria-label` and a tooltip ("Play ⎵", "Hide Sidebar S", "Search ⌘K").
+- Hovering a list row reveals its checkbox and `…`, and a hover-tooltip with the exact date over "13d ago".
+- Copy Link: the icon morphs into a ✓ and a toast confirms ("Link Copied" + a one-line explanation).
+- Menus: 32px rows, 13px text, 6×10 padding, row hover = surface-4 with a gradient top edge. Missing mic/camera
+  permission shows inline as an amber "Allow Access" row rather than an error dialog.
+- Opening a video from the library does **not** autoplay in Flask; it opens paused at 0:00.
+- Typing a letter while the page has focus starts a comment (type-to-comment).
+
+## 5. What Bottle takes from this
+
+| Area | Bottle change |
+|---|---|
+| Ease | `--ease-out: cubic-bezier(.23,1,.32,1)` everywhere; hovers 150ms; no 300ms+ hover fades |
+| Controls | raised pill buttons: fill + 0.5px inset ring + top sheen + tiny drop shadow; icon at 70% → 95% on hover; pointer-following light on pills |
+| Press | `translateY(1px)` on pills, `scale(.94)` on round icon buttons, 150ms |
+| Tooltips | custom `Tip` layer: label + animated keycaps; **350ms** cold delay (between Flask's 0 and 700), instant when warm, 150ms fade/zoom/slide, arrow, aria-labels everywhere |
+| Focus | ring only for keyboard users, follows the control's own radius |
+| Toasts | top-center, optional subtitle, overshoot spring (0.45s feel), icon per tone |
+| Empty states | short, specific, one action; no decorative noise |
+| Autoplay | Bottle *does* autoplay when you click a video (user request), muted fallback if the browser blocks sound |
+
+## 6. Bottle motion spec (after this pass)
+
 | Thing | Motion |
 |---|---|
-| Side panel slide-in | spring stiffness 380, damping 38 (≈320ms, no overshoot visible) |
-| Timeline marker pop-in | scale 0→1, spring stiffness 600, damping 22 (tiny overshoot) |
-| Draw toolbar morph | shared-layout "active pill" between tools, spring 500/34 |
-| Feedback bar → recording | layout width morph + waveform dots, spring 420/32 |
-| Toasts | y 16→0, scale .96→1, opacity; exit y −8; spring 500/36 |
-| View change (library ↔ review) | opacity + 1% scale + 8px y, 240ms ease [0.16,1,0.3,1] |
-| Hover | 120–150ms color/opacity; press scale .96 |
-| Drawings in playback | fade in 120ms, hold ~1.2s, fade out 300ms |
-| Reduced motion | Motion `reducedMotion="user"` + CSS kill-switch; springs become fades |
+| Hover color/fill | 150ms `--ease-out` |
+| Press | 150ms transform; pills `translateY(1px)`, icons `scale(.94)` |
+| Tooltip | 350ms delay (0 when warm, warm window 400ms); enter 150ms opacity + scale .95→1 + 6px slide; exit 80ms |
+| Keycap press | 450ms × 2, starts 150ms after the tooltip shows |
+| Toast | spring stiffness 520, damping 30 (≈ the 0.45s overshoot curve); exit 160ms |
+| Popover/menu | 150ms opacity + scale .96→1 from the trigger side |
+| Side panel | spring 380/38 |
+| View change | 200ms fade + 6px y |
+| Reduced motion | all of the above collapse to opacity fades |
