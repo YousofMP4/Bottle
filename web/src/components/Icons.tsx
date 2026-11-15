@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react';
+import { useId, type SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
 const base = (size = 18): SVGProps<SVGSVGElement> => ({
@@ -47,11 +47,43 @@ export const IList = mk(<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.
 export const ISearch = mk(<><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></>);
 export const ILink = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>);
 
-/** Bottle mark: a simple glass bottle silhouette. */
-export const BottleMark = ({ size = 22 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-    <path d="M9.6 2.5h4.8v1.6h-.6v2.6c0 .8 3.2 2.3 3.2 6.1v6.9a2.8 2.8 0 0 1-2.8 2.8H9.8A2.8 2.8 0 0 1 7 19.7v-6.9c0-3.8 3.2-5.3 3.2-6.1V4.1h-.6z" fill="var(--accent)" />
-    <path d="M9 13.2h6v4.4H9z" fill="var(--bg)" opacity=".55" />
+/** Bottle's app mark: a monoline "b" on a dark tile, with a green LED in the bowl. */
+export const BottleMark = ({ size = 22, tile = true }: { size?: number; tile?: boolean }) => {
+  const id = useId().replace(/:/g, '');
+  return (
+    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden className="bottle-mark">
+      {tile && (
+        <>
+          <defs>
+            <linearGradient id={`t${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#262626" /><stop offset="1" stopColor="#121212" /></linearGradient>
+            <linearGradient id={`s${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#fff" stopOpacity=".1" /><stop offset=".5" stopColor="#fff" stopOpacity="0" /></linearGradient>
+          </defs>
+          <rect x="8" y="8" width="496" height="496" rx="112" fill={`url(#t${id})`} />
+          <rect x="8" y="8" width="496" height="496" rx="112" fill={`url(#s${id})`} />
+          <rect x="8.75" y="8.75" width="494.5" height="494.5" rx="111.25" fill="none" stroke="#fff" strokeOpacity=".09" strokeWidth="1.5" />
+        </>
+      )}
+      <g transform="translate(256 256) scale(1.55) translate(-125 -230)">
+        <g fill="none" stroke="#f4f4f0" strokeWidth="30" strokeLinecap="round"><path d="M80 160V300" /><circle cx="125" cy="255" r="45" /></g>
+        <circle cx="125" cy="255" r="13" fill="var(--accent)" />
+      </g>
+    </svg>
+  );
+};
+
+/** The "bottle" wordmark: monoline letters, both t's share one crossbar with a green playhead. */
+export const Wordmark = ({ height = 20 }: { height?: number }) => (
+  <svg height={height} viewBox="50 140 600 180" aria-label="bottle" role="img" className="wordmark-svg">
+    <g fill="none" stroke="currentColor" strokeWidth="30" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M80 160V300" /><circle cx="125" cy="255" r="45" />
+      <circle cx="259" cy="255" r="45" />
+      <path d="M356 172V268Q356 300 386 300" />
+      <path d="M416 172V268Q416 300 446 300" />
+      <path d="M492 160V300" />
+      <path d="M537 255H621A45 45 0 1 0 611.5 282.7" />
+      <path d="M342 216H444" />
+    </g>
+    <circle cx="386" cy="216" r="17" fill="var(--accent)" stroke="var(--bg)" strokeWidth="6" />
   </svg>
 );
 

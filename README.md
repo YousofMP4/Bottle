@@ -1,6 +1,8 @@
+<p align="center"><img src="docs/brand/tile.svg" alt="Bottle" width="120"></p>
+
 <p align="center"><img src="docs/screenshots/review.png" alt="Bottle reviewing a video, with a drawing on the frame and comments on the right" width="900"></p>
 
-# 🍾 Bottle
+# Bottle
 
 **Review a video. Hand the notes to your AI agent.**
 

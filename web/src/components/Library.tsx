@@ -536,7 +536,7 @@ function Empty() {
     ])}>
       <motion.div className="empty-mark" initial={{ scale: 0.6, opacity: 0, rotate: -8 }} animate={{ scale: 1, opacity: 1, rotate: 0 }} transition={{ ...spring.pop, delay: 0.05 }}>
         <div className="empty-glow" />
-        <BottleMark size={56} />
+        <BottleMark size={96} />
       </motion.div>
       <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.6, ease }}>
         Review a cut. <span className="dim">Hand it back.</span>

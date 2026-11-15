@@ -869,3 +869,15 @@ input, textarea { cursor: text; }
 .card-media:has(.scrub.on) .card-play, .card-media:has(.scrub.on) .card-dur { opacity: 0; }
 .card:hover .card-media:has(.scrub.on) img { filter: none; }
 .row-thumb .scrub { z-index: 1; }
+
+/* ---------- brand ---------- */
+.brand { padding: 8px 10px 18px; }
+.wordmark { display: flex; color: #f4f4f0; }
+.wordmark-svg { display: block; }
+.brand-mark { display: none; }
+.empty-mark { width: auto; height: auto; background: none; border: 0; border-radius: 26px; box-shadow: 0 18px 50px -12px rgba(0,0,0,.9); }
+.empty-mark svg { animation: none; }
+@media (max-width: 960px) {
+  .brand-mark { display: flex; }
+  .brand { padding: 6px 0 16px; justify-content: center; }
+}

@@ -3,7 +3,7 @@ import { useStore, addVideo, playVideo, askRemove } from '../lib/store';
 import { api } from '../lib/api';
 import { showMenu } from './ContextMenu';
 import { posterUrl } from '../lib/api';
-import { BottleMark, IFolder, IKeyboard, ILibrary, IPlus, ISettings, ITrash, ICopy, IPlay } from './Icons';
+import { BottleMark, Wordmark, IFolder, IKeyboard, ILibrary, IPlus, ISettings, ITrash, ICopy, IPlay } from './Icons';
 import { spring } from '../lib/motion';
 import { tip } from './Tooltip';
 
@@ -23,8 +23,8 @@ export function Sidebar() {
   return (
     <nav className="sidebar" aria-label="Bottle">
       <div className="brand">
-        <BottleMark />
-        <span className="wordmark">bottle</span>
+        <span className="brand-mark"><BottleMark size={28} /></span>
+        <span className="wordmark"><Wordmark height={21} /></span>
       </div>
       <button className="nav-item" onClick={() => addVideo()} {...tip('Add video', ['⌘', 'O'], { side: 'right', when: 'collapsed' })}>
         <IPlus size={17} /> <span>Add video</span> <kbd className="nav-kbd">⌘O</kbd>
