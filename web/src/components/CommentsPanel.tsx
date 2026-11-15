@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import type { Comment, Round, Version } from '../../../server/types';
 import { useStore } from '../lib/store';
 import { api, audioUrl } from '../lib/api';
+import { voice, useVoice } from '../lib/voice';
 import { player } from '../lib/bus';
 import { tc, ago } from '../lib/time';
 import { spring } from '../lib/motion';
@@ -172,37 +173,30 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
 }
 
 function VoiceNote({ c }: { c: Comment }) {
-  const [playing, setPlaying] = useState(false);
-  const [prog, setProg] = useState(0);
-  const audio = useRef<HTMLAudioElement | null>(null);
+  // All playback goes through the single app-wide controller (see lib/voice.ts).
+  const { playing, progress } = useVoice(c.id);
   const peaks = c.audio_peaks ?? Array(32).fill(0.3);
+  const bars = peaks.slice(0, 40);
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!c.audio) return;
-    if (!audio.current) {
-      const a = new Audio(audioUrl(c.audio));
-      a.ontimeupdate = () => setProg(a.duration && isFinite(a.duration) ? a.currentTime / a.duration : a.currentTime / (c.audio_duration || 1));
-      a.onended = () => { setPlaying(false); setProg(0); };
-      audio.current = a;
-    }
-    if (playing) { audio.current.pause(); setPlaying(false); } else { audio.current.play(); setPlaying(true); }
+    if (c.audio) voice.toggle(c.id, audioUrl(c.audio), c.audio_duration);
   };
-  useEffect(() => () => audio.current?.pause(), []);
   return (
-    <div className="voice-note">
+    <div className={`voice-note ${playing ? 'playing' : ''}`}>
       {c.audio && (
-        <button className="vn-play" onClick={toggle} {...tip(playing ? 'Pause voice note' : 'Play voice note')}>
+        <button className="vn-play" onClick={toggle} aria-pressed={playing} {...tip(playing ? 'Pause voice note' : 'Play voice note')}>
+          <svg className="vn-ring" viewBox="0 0 32 32" aria-hidden><circle cx="16" cy="16" r="14.5" pathLength="1" style={{ strokeDashoffset: 1 - progress }} /></svg>
           {playing ? <IPause size={12} /> : <IPlay size={12} />}
         </button>
       )}
       {c.audio && (
         <div className="vn-wave" aria-hidden>
-          {peaks.slice(0, 40).map((p, i) => (
-            <span key={i} style={{ height: `${Math.max(12, p * 100)}%` }} className={i / Math.min(40, peaks.length) <= prog ? 'on' : ''} />
+          {bars.map((p, i) => (
+            <span key={i} style={{ height: `${Math.max(12, p * 100)}%` }} className={i / bars.length < progress ? 'on' : ''} />
           ))}
         </div>
       )}
-      {c.audio && <span className="mono dim vn-dur">{tc(c.audio_duration)}</span>}
+      {c.audio && <span className="mono dim vn-dur">{playing || progress > 0 ? tc(progress * (c.audio_duration || 0)) : tc(c.audio_duration)}</span>}
       {c.transcript ? <p className="vn-transcript"><IMic size={11} /> “{c.transcript}”</p> : c.audio ? <p className="vn-transcript dim">No transcript</p> : null}
     </div>
   );

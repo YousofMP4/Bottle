@@ -42,6 +42,8 @@ interface State {
   /** Set right before routing into a video from a click, so the player starts on its own. */
   autoplay: boolean;
   muted: boolean;
+  /** Where the floating comment box sits after a drawing stroke (viewport px), or null. */
+  float: { x: number; y: number; drawing: boolean } | null;
   rate: number;
 
   go(r: Route): void;
@@ -79,6 +81,7 @@ export const useStore = create<State>((set, get) => ({
   playing: false,
   autoplay: false,
   muted: false,
+  float: null,
   rate: 1,
 
   go(r) {
@@ -124,7 +127,7 @@ export const useStore = create<State>((set, get) => ({
   set(p) { set(p); },
   startDraft(t) { if (!get().draft) set({ draft: emptyDraft(t) }); },
   patchDraft(p) { const d = get().draft ?? emptyDraft(0); set({ draft: { ...d, ...p } }); },
-  clearDraft() { set({ draft: null, tool: null }); },
+  clearDraft() { set({ draft: null, tool: null, float: null }); },
   upsertComment(c) {
     const d = get().detail;
     if (!d || d.video.id !== c.video_id) return;

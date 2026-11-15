@@ -115,6 +115,8 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
   const bufRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ x: number; t: number; lane: boolean } | null>(null);
   const dragging = useRef(false);
+  const lastT = useRef(0);
+  const [scrubbing, setScrubbing] = useState(false);
   const selectedId = useStore((s) => s.selectedId);
   const dur = version.duration || player.duration || 1;
 
@@ -149,28 +151,34 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
     const { t } = tAt(e.clientX);
     if (lane) { onComposeAt(t); return; }
     dragging.current = true;
+    lastT.current = t;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    const wasPlaying = !player.el?.paused;
+    // While scrubbing the cursor is "grabbing" everywhere, not just over the bar.
+    document.documentElement.dataset.dragCursor = 'grabbing';
+    setScrubbing(true);
     player.pause();
-    player.seek(t);
-    (e.currentTarget as any).__resume = wasPlaying;
+    player.scrubTo(t);
   };
   const onMove = (e: React.PointerEvent) => {
     const { x, t } = tAt(e.clientX);
     const lane = !!(e.target as HTMLElement).closest('.lane');
     setHover({ x, t, lane });
-    if (dragging.current) player.seek(t);
+    if (dragging.current) { lastT.current = t; player.scrubTo(t); }
   };
-  const onUp = (e: React.PointerEvent) => {
+  // Releasing a click or drag on the bar always plays from there (keyboard stepping never does).
+  const onUp = () => {
     if (!dragging.current) return;
     dragging.current = false;
-    if ((e.currentTarget as any).__resume) player.play();
+    delete document.documentElement.dataset.dragCursor;
+    setScrubbing(false);
+    player.endScrub(lastT.current);
+    player.play();
   };
 
   const roots = comments.filter((c) => !c.parent_id && c.version_id === version.id);
 
   return (
-    <div className="timeline" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => !dragging.current && setHover(null)}>
+    <div className={`timeline ${scrubbing ? 'scrubbing' : ''}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp} onPointerLeave={() => !dragging.current && setHover(null)}>
       <div className="lane" aria-label="Comment lane: click to comment at a moment">
         <AnimatePresence>
           {roots.map((c) => (

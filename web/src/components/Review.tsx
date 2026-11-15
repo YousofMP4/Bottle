@@ -8,6 +8,7 @@ import { Stage } from './Stage';
 import { Transport } from './Transport';
 import { FeedbackBar, composer } from './FeedbackBar';
 import { CommentsPanel } from './CommentsPanel';
+import { FloatingComposer } from './FloatingComposer';
 import { Popover } from './Popover';
 import { useReviewShortcuts } from '../lib/shortcuts';
 import { tip } from './Tooltip';
@@ -46,6 +47,7 @@ export function Review({ id }: { id: string }) {
         </div>
         <Transport version={version} versions={detail.versions} comments={comments} onComposeAt={(t) => composer.focus(t)} />
       </div>
+      <FloatingComposer />
       <AnimatePresence initial={false}>
         {panelOpen && (
           <motion.aside

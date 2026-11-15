@@ -4,11 +4,12 @@ import type { Version } from '../../../server/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { player, timeBus } from '../lib/bus';
+import { voice, useVoice } from '../lib/voice';
 import { VoiceRecorder } from '../lib/recorder';
 import { createTranscriber, type LiveTranscriber } from '../lib/transcriber';
 import { tc } from '../lib/time';
 import { spring } from '../lib/motion';
-import { DotWave, IArrowUp, IPen, IStop, IX } from './Icons';
+import { DotWave, IArrowUp, IPause, IPen, IPlay, IStop, IX } from './Icons';
 import { tip } from './Tooltip';
 
 /** Imperative handle so keyboard shortcuts and the timeline can drive the composer. */
@@ -96,7 +97,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
     if (rec.current) await stopRecording();
     const st = useStore.getState();
     const d = st.draft;
-    const text = inputRef.current?.value ?? d?.text ?? '';
+    const text = d?.text ?? '';
     if (!d || (!text.trim() && !d.shapes.length && !d.audio && !d.transcript)) {
       // Same damped nudge as the reference app: -4, 3.5, -2.5, 1.5, -0.5px.
       shake.start({ x: [0, -4, 3.5, -2.5, 1.5, -0.5, 0], transition: { duration: 0.4, ease: 'easeOut' } });
@@ -109,7 +110,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
       if (d.audio) c = await api.uploadAudio(c.id, d.audio.blob, d.audio.duration, d.audio.peaks);
       st.upsertComment(c);
       st.clearDraft();
-      if (inputRef.current) { inputRef.current.value = ''; inputRef.current.style.height = ''; inputRef.current.blur(); }
+      if (inputRef.current) { inputRef.current.style.height = ''; inputRef.current.blur(); }
       st.set({ selectedId: c.id });
       st.toast({ text: `Comment pinned at ${tc(c.timestamp)}`, sub: 'It goes to your agent when you press Send to agent.', tone: 'accent' });
       st.loadVideos();
@@ -124,7 +125,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
   composer.post = post;
 
   useEffect(() => () => { rec.current?.cancel(); tr.current?.stop(); }, []);
-  useEffect(() => { if (!draft && inputRef.current) inputRef.current.value = ''; }, [draft]);
+  useEffect(() => { if (!draft) { voice.release('draft'); if (inputRef.current) inputRef.current.style.height = ''; } }, [draft]);
 
   const recording = !!draft?.recording;
   const hasDraft = !!draft;
@@ -171,6 +172,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
             ref={inputRef}
             rows={1}
             aria-label="Comment"
+            value={draft?.text ?? ''}
             placeholder={recording ? 'Type while you talk…' : 'Leave feedback…'}
             onFocus={() => anchor()}
             onChange={(e) => {
@@ -192,9 +194,9 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
             )}
             {draft?.audio && (
               <motion.span key="a" className="att voice" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={spring.pop}>
-                <button className="att-play" onClick={() => new Audio(draft.audio!.url).play()} {...tip('Play voice note')}>▶</button>
+                <DraftClipButton url={draft.audio.url} duration={draft.audio.duration} />
                 <span className="mono">{tc(draft.audio.duration)}</span>
-                <button onClick={() => useStore.getState().patchDraft({ audio: null, transcript: '' })} {...tip('Remove voice note')}><IX size={11} /></button>
+                <button onClick={() => { voice.release('draft'); useStore.getState().patchDraft({ audio: null, transcript: '' }); }} {...tip('Remove voice note')}><IX size={11} /></button>
               </motion.span>
             )}
           </AnimatePresence>
@@ -208,5 +210,16 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
         </button>
       </motion.div>
     </motion.div>
+  );
+}
+
+function DraftClipButton({ url, duration }: { url: string; duration: number }) {
+  const { playing } = useVoice('draft');
+  // A new recording gets a new blob URL; make sure the controller doesn't keep the old one.
+  useEffect(() => () => voice.release('draft'), [url]);
+  return (
+    <button className="att-play" onClick={() => voice.toggle('draft', url, duration)} aria-pressed={playing} {...tip(playing ? 'Pause voice note' : 'Play voice note')}>
+      {playing ? <IPause size={10} /> : <IPlay size={10} />}
+    </button>
   );
 }

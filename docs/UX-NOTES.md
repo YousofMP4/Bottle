@@ -96,3 +96,37 @@ real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
 | Side panel | spring 380/38 |
 | View change | 200ms fade + 6px y |
 | Reduced motion | all of the above collapse to opacity fades |
+
+## 7. Round 2: hardware controls and cursors (measured 2026-11-15)
+
+**Scrubber knob** (`.metal-knob`, 14×14px, centered on the playhead):
+- `conic-gradient(from 20deg, sheen, body 25%, sheen, body 75%, sheen)` with sheen = white @ .93, body = white @ .66
+  on a black base, so it reads as brushed metal catching light at two angles.
+- Bevel: `inset 0 1px` white top edge, `inset 0 -1px` black @ .3 bottom rim.
+- Shadow thrown down-left (light from top-right): `-1px 1px 3px` and `-5px 6px 18px -2px`, black @ .65.
+- The track is 20px tall for hit-testing and keeps the **default** arrow cursor. The volume slider thumb
+  (12px, flat white) uses `grab`.
+- Releasing a drag on a paused video **stays paused** in Flask. (Bottle resumes on release: requested.)
+
+**Cursor logic**:
+- Draw armed: `html[data-draw-armed] * { cursor: var(--draw-armed-cursor) !important }`. The cursor is a 40×40 SVG
+  pencil tip with two drop shadows, hotspot `3 35` (the tip, bottom-left), fallback `crosshair`.
+- Any drag: `html[data-drag-cursor=grabbing] * { cursor: grabbing !important }`, so the cursor never flickers
+  while the pointer crosses other elements.
+- Idle over playing video: `cursor: none` (hidden until the mouse moves).
+- `disabled → not-allowed`, sliders `grab`, `active:grabbing`.
+
+**Bottom bar** (from the reference screenshots): `Versions` pill sits on its own row above-left; the transport row
+is play (round, 32px), `v6` chip, timecode where the elapsed part is bright and the duration dim, a long
+4px track, then a cluster of joined `− +` steppers, `1 x`, volume, and a settings button. The feedback dock is
+centered above the transport with a mode button (dot-matrix glyph + label + chevron) and a send arrow.
+
+**Composer after drawing** (observed): choosing the pencil reveals a row of colored crayons above the composer;
+the composer expands into a card with the pencil, `+` and send.
+
+### Bottle's take
+- Our own knob (not Flask's values verbatim): a knurled conic texture with 24 ridges + a soft specular dot,
+  16px, grows to 18px on hover, presses in (inset shadow, scale .94) while dragging.
+- Our own pen-nib SVG cursor tinted with the active ink color, hotspot at the nib, crosshair fallback.
+- Same global-drag-cursor trick, `grab` on the track, `grabbing` everywhere during a scrub.
+- Mechanical press: 80ms sink of 1–2px with a tightened shadow; optional WebAudio click (Settings, off by default).

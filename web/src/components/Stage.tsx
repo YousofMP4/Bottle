@@ -4,6 +4,7 @@ import type { Comment, Shape, Version } from '../../../server/types';
 import { useStore } from '../lib/store';
 import { mediaUrl } from '../lib/api';
 import { player, timeBus } from '../lib/bus';
+import { voice } from '../lib/voice';
 import { drawShape, simplify } from '../lib/shapes';
 import { DrawToolbar } from './DrawToolbar';
 import { spring, ease } from '../lib/motion';
@@ -61,7 +62,7 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    const onPlay = () => { useStore.setState({ playing: true }); setAutoplayLimit((l) => (l === 'blocked' ? null : l)); };
+    const onPlay = () => { voice.stop(); useStore.setState({ playing: true }); setAutoplayLimit((l) => (l === 'blocked' ? null : l)); };
     const onPause = () => useStore.setState({ playing: false });
     const onRate = () => useStore.setState({ rate: v.playbackRate });
     const onErr = () => setError(v.error?.code === 4 ? 'This browser can’t play this file’s format. Try an H.264 or HEVC .mp4/.mov.' : 'The video file couldn’t be loaded. Was it moved?');
@@ -155,9 +156,14 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     if (!tool) return;
     e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
+    // Safety net: if the release never reaches the canvas (left the window, lost capture), finish anyway.
+    const finish = (ev: PointerEvent) => { if (live.current) onUp(ev as any); };
+    window.addEventListener('pointerup', finish, { once: true, capture: true });
     player.pause();
     const st = useStore.getState();
     st.startDraft(player.time);
+    // An open comment box steps aside while you draw, then follows to where you let go.
+    if (st.float) st.set({ float: { ...st.float, drawing: true } });
     const p = norm(e);
     live.current = { tool, color: st.color, width: tool === 'pen' ? 0.0055 : 0.0065, points: tool === 'pen' ? [p] : [p, p] };
     (canvasRef.current as any).__render();
@@ -172,16 +178,18 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     } else s.points[1] = norm(e);
     (canvasRef.current as any).__render();
   };
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent) => {
     const s = live.current;
     live.current = null;
     if (!s) return;
+    const st = useStore.getState();
     const [a, b] = [s.points[0], s.points[s.points.length - 1]];
     const tiny = s.tool !== 'pen' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.01;
-    if (tiny) { (canvasRef.current as any).__render(); return; }
+    if (tiny) { (canvasRef.current as any).__render(); if (st.float) st.set({ float: { ...st.float, drawing: false } }); return; }
     if (s.tool === 'pen') s.points = simplify(s.points.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]));
-    const st = useStore.getState();
     st.patchDraft({ shapes: [...(st.draft?.shapes ?? []), s] });
+    // Finishing a stroke opens the comment box right under the cursor, ready to type.
+    st.set({ float: { x: e.clientX, y: e.clientY, drawing: false } });
   };
 
   return (

@@ -20,7 +20,33 @@ export const player = {
   reverseRate: 0,
   onShuttle: null as null | ((rate: number) => void),
   get time() { return this.el?.currentTime ?? 0; },
-  play() { this.stopReverse(); this.el?.play().catch(() => {}); },
+  /** Called whenever the video starts; the audio controller hooks this to stop voice notes. */
+  onPlay: null as null | (() => void),
+  play() { this.stopReverse(); this.onPlay?.(); this.el?.play().catch(() => {}); },
+  /**
+   * Live scrubbing: only one seek in flight at a time, always to the latest wanted time, so the
+   * frame under the cursor keeps up while dragging instead of queueing stale seeks.
+   */
+  scrubWant: -1,
+  scrubTo(t: number) {
+    const v = this.el;
+    if (!v) return;
+    const d = v.duration || this.duration || 0;
+    const tt = Math.max(0, Math.min(d ? d - 0.001 : t, t));
+    timeBus.emit(tt);
+    this.scrubWant = tt;
+    if (v.seeking) return;
+    const next = () => {
+      if (this.scrubWant < 0) return;
+      const w = this.scrubWant;
+      if (Math.abs(v.currentTime - w) < 0.004) { this.scrubWant = -1; return; }
+      v.currentTime = w;
+      v.addEventListener('seeked', next, { once: true });
+    };
+    next();
+  },
+  /** End a scrub: land exactly on the last position. */
+  endScrub(t: number) { this.scrubWant = -1; this.seek(t); },
   pause() { this.stopReverse(); this.el?.pause(); },
   toggle() { if (!this.el) return; if (this.el.paused && !this.reverseRate) this.play(); else { this.pause(); this.setRate(1); } },
   seek(t: number) {
