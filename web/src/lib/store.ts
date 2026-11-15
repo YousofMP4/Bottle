@@ -51,6 +51,8 @@ interface State {
   /** Where the floating comment box sits after a drawing stroke (viewport px), or null. */
   float: { x: number; y: number; drawing: boolean } | null;
   rate: number;
+  /** Add video is waiting on the native file picker ('finder') or on the server adding the file ('adding'). */
+  picking: null | 'finder' | 'adding';
 
   go(r: Route): void;
   loadVideos(): Promise<void>;
@@ -92,6 +94,7 @@ export const useStore = create<State>((set, get) => ({
   volume: (() => { try { const v = Number(localStorage.getItem('bottle.volume')); return v >= 0 && v <= 1 && localStorage.getItem('bottle.volume') !== null ? v : 1; } catch { return 1; } })(),
   float: null,
   rate: 1,
+  picking: null,
 
   go(r) {
     const hash = r.name === 'library' ? (r.folder ? `#/f/${r.folder}` : '#/') : `#/v/${r.id}${r.v ? `/${r.v}` : ''}`;
@@ -158,8 +161,18 @@ export function parseHash(): Route {
 /** Open the native file picker (or the paste dialog), add the file to the library and route into it. */
 export async function addVideo(videoId?: string) {
   const s = useStore.getState();
+  if (s.picking) return; // Finder is already on its way; a second click must not open a second picker
   // Adding from inside a folder files the video there.
   const folderId = s.route.name === 'library' ? s.route.folder ?? null : null;
+  // The picker can take seconds to appear. Show it is coming right away, and switch to
+  // "Adding" once the browser gets focus back (the Finder dialog closed).
+  s.set({ picking: 'finder' });
+  document.documentElement.dataset.busy = '';
+  let blurred = false;
+  const onBlur = () => { blurred = true; };
+  const onFocus = () => { if (blurred && useStore.getState().picking) useStore.getState().set({ picking: 'adding' }); };
+  window.addEventListener('blur', onBlur);
+  window.addEventListener('focus', onFocus);
   try {
     const r = await api.pick(videoId, folderId);
     if (r.cancelled) return;
@@ -167,6 +180,11 @@ export async function addVideo(videoId?: string) {
   } catch (e: any) {
     if (e.status === 501) { s.set({ dialog: 'paste', pasteFor: videoId }); return; }
     s.toast({ text: e.message, tone: 'error' });
+  } finally {
+    window.removeEventListener('blur', onBlur);
+    window.removeEventListener('focus', onFocus);
+    delete document.documentElement.dataset.busy;
+    useStore.getState().set({ picking: null });
   }
 }
 

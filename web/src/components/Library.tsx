@@ -7,6 +7,7 @@ import { tc, ago } from '../lib/time';
 import { BottleMark, IChevronRight, IFilm, IFolder, IGrid, IList, IPlay, IPlus, ISearch, ITrash, ICopy, IX } from './Icons';
 import { ease, spring } from '../lib/motion';
 import { tip } from './Tooltip';
+import { AddVideoIcon, useAddBusy } from './AddVideoIcon';
 import { showMenu, type MenuItem } from './ContextMenu';
 
 type Sort = 'recent' | 'custom' | 'name' | 'duration' | 'notes';
@@ -22,6 +23,8 @@ interface Drag { kind: 'video' | 'folder'; ids: string[]; x: number; y: number; 
 type DropTarget = { type: 'folder'; id: string | null } | { type: 'before'; id: string; after: boolean };
 
 export function Library() {
+  const picking = useStore((s) => s.picking);
+  const busy = useAddBusy();
   const videos = useStore((s) => s.videos);
   const folders = useStore((s) => s.folders);
   const loaded = useStore((s) => s.videosLoaded);
@@ -277,8 +280,8 @@ export function Library() {
             ))}
           </div>
           <button className="round-btn" onClick={newFolder} aria-disabled={!!folder?.parent_id} {...tip(folder?.parent_id ? 'Folders go one level deep' : 'New folder', undefined, { side: 'bottom' })}><IFolderPlus /></button>
-          <button className="btn primary" onClick={() => addVideo()} {...tip(folder ? `Add a video to “${folder.name}”` : 'Add a video from this Mac', ['⌘', 'O'], { side: 'bottom', aria: false })}>
-            <IPlus size={16} /> Add video
+          <button className="btn primary" onClick={() => addVideo()} {...busy} {...tip(folder ? `Add a video to “${folder.name}”` : 'Add a video from this Mac', ['⌘', 'O'], { side: 'bottom', aria: false })}>
+            <AddVideoIcon size={16} dark /> {picking ? 'Opening…' : 'Add video'}
           </button>
         </div>
       </header>
@@ -529,6 +532,8 @@ const IChevronDownSmall = () => <svg width="12" height="12" viewBox="0 0 24 24" 
 const IFolderPlus = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" /><path d="M12 11v5M9.5 13.5h5" /></svg>;
 
 function Empty() {
+  const picking = useStore((s) => s.picking);
+  const busy = useAddBusy();
   return (
     <div className="empty-hero" onContextMenu={(e) => showMenu(e, [
       { label: 'Add video…', icon: <IPlus size={13} />, kbd: '⌘O', run: () => addVideo() },
@@ -546,8 +551,8 @@ function Empty() {
         exact moment, then send it all to your agent. Your files stay where they are.
       </motion.p>
       <motion.div className="empty-actions" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28, duration: 0.6, ease }}>
-        <button className="btn primary lg" onClick={() => addVideo()}>
-          <IPlus size={18} /> Add video <kbd className="kbd-inline">⌘O</kbd>
+        <button className="btn primary lg" onClick={() => addVideo()} {...busy}>
+          <AddVideoIcon size={18} dark /> {picking ? 'Opening Finder…' : <>Add video <kbd className="kbd-inline">⌘O</kbd></>}
         </button>
       </motion.div>
       <motion.div className="empty-agent" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45, duration: 0.8 }}>
