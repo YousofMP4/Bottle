@@ -6,7 +6,9 @@ import { mediaUrl } from '../lib/api';
 import { player, timeBus } from '../lib/bus';
 import { drawShape, simplify } from '../lib/shapes';
 import { DrawToolbar } from './DrawToolbar';
-import { spring } from '../lib/motion';
+import { spring, ease } from '../lib/motion';
+import { IPause, IPlay, IMute } from './Icons';
+import { tip } from './Tooltip';
 
 const SHOW_FOR = 1.5; // seconds a drawing stays up during playback
 const FADE_OUT = 0.3;
@@ -23,6 +25,11 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
   const selectedId = useStore((s) => s.selectedId);
   const live = useRef<Shape | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 'muted' = the browser only allowed silent autoplay; 'blocked' = it allowed none. */
+  const [autoplayLimit, setAutoplayLimit] = useState<null | 'muted' | 'blocked'>(null);
+  const [buffering, setBuffering] = useState(false);
+  const forcedMute = useRef(false);
+  const [flash, setFlash] = useState<{ n: number; playing: boolean } | null>(null);
 
   const aspect = version.width && version.height ? version.width / version.height : 16 / 9;
 
@@ -54,15 +61,45 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    const onPlay = () => useStore.setState({ playing: true });
+    const onPlay = () => { useStore.setState({ playing: true }); setAutoplayLimit((l) => (l === 'blocked' ? null : l)); };
     const onPause = () => useStore.setState({ playing: false });
     const onRate = () => useStore.setState({ rate: v.playbackRate });
     const onErr = () => setError(v.error?.code === 4 ? 'This browser can’t play this file’s format. Try an H.264 or HEVC .mp4/.mov.' : 'The video file couldn’t be loaded. Was it moved?');
+    // Loading state: only show the spinner if a stall lasts long enough to notice.
+    let bufT = 0;
+    const onWaiting = () => { clearTimeout(bufT); bufT = window.setTimeout(() => setBuffering(true), 180); };
+    const onReady = () => { clearTimeout(bufT); setBuffering(false); };
+    const onVol = () => { useStore.setState({ muted: v.muted }); if (!v.muted) { forcedMute.current = false; setAutoplayLimit((l) => (l === 'muted' ? null : l)); } };
+    v.muted = useStore.getState().muted;
+    // A fresh <video> starts paused; the old element never fired 'pause' when it was replaced.
+    useStore.setState({ playing: false, rate: 1 });
     v.addEventListener('play', onPlay); v.addEventListener('pause', onPause); v.addEventListener('ratechange', onRate); v.addEventListener('error', onErr);
+    v.addEventListener('waiting', onWaiting); v.addEventListener('playing', onReady); v.addEventListener('canplay', onReady); v.addEventListener('seeked', onReady);
+    v.addEventListener('volumechange', onVol);
+    // Some browsers stop at metadata and leave the stage black; a tiny seek forces the first frame to paint.
+    const onMeta = () => { if (v.paused && v.currentTime === 0 && v.readyState < 2) v.currentTime = 0.001; };
+    v.addEventListener('loadedmetadata', onMeta, { once: true });
     player.onShuttle = (r) => useStore.setState({ rate: r });
+    setAutoplayLimit(null);
+
+    // Autoplay: the click that opened this video is the user gesture, so start right away.
+    if (useStore.getState().autoplay) {
+      useStore.setState({ autoplay: false });
+      v.play().catch((e: DOMException) => {
+        if (e?.name !== 'NotAllowedError') return; // e.g. aborted by a quick version switch
+        // The browser refused sound. Play silently instead and offer one click to unmute.
+        v.muted = true; forcedMute.current = true;
+        v.play().then(() => setAutoplayLimit('muted')).catch(() => { v.muted = useStore.getState().muted; setAutoplayLimit('blocked'); });
+      });
+    }
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf); clearTimeout(bufT);
+      // A mute the browser forced on us isn't the reviewer's preference; don't carry it to the next video.
+      if (forcedMute.current) { forcedMute.current = false; useStore.setState({ muted: false }); }
       v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('ratechange', onRate); v.removeEventListener('error', onErr);
+      v.removeEventListener('waiting', onWaiting); v.removeEventListener('playing', onReady); v.removeEventListener('canplay', onReady); v.removeEventListener('seeked', onReady);
+      v.removeEventListener('volumechange', onVol);
+      v.removeEventListener('loadedmetadata', onMeta);
       if (player.el === v) player.el = null;
     };
   }, [version.id]);
@@ -78,7 +115,10 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     cv.width = Math.max(1, Math.round(box.w * dpr)); cv.height = Math.max(1, Math.round(box.h * dpr));
     const ctx = cv.getContext('2d')!;
     const render = (t: number) => {
-      const { drawings, draft, selectedId } = stateRef.current;
+      // Read draft/selection straight from the store: store subscribers fire before React re-renders,
+      // so a ref updated during render would still hold the previous draft here.
+      const { drawings } = stateRef.current;
+      const { draft, selectedId } = useStore.getState();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, box.w, box.h);
       const eps = 0.6 / (player.fps || 30);
@@ -102,6 +142,9 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     (cv as any).__render = () => render(timeBus.get());
     return () => { off(); unsub(); };
   }, [box.w, box.h]);
+
+  // Saved drawings arrive through props; repaint after every render so they show up immediately.
+  useEffect(() => { (canvasRef.current as any)?.__render?.(); });
 
   // Pointer drawing in normalized coordinates.
   const norm = (e: React.PointerEvent): [number, number] => {
@@ -150,7 +193,13 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
           src={mediaUrl(version.id)}
           preload="auto"
           playsInline
-          onClick={() => !tool && player.toggle()}
+          onClick={() => {
+            if (tool) return;
+            const willPlay = !!player.el?.paused;
+            player.toggle();
+            setAutoplayLimit((l) => (l === 'blocked' ? null : l));
+            setFlash((f) => ({ n: (f?.n ?? 0) + 1, playing: willPlay }));
+          }}
           onDoubleClick={() => !tool && document.querySelector('.review')?.requestFullscreen?.()}
         />
         <canvas
@@ -168,7 +217,38 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
             <motion.div key="ring" className="draw-ring" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={spring.soft} style={{ ['--c' as any]: color }} />
           )}
         </AnimatePresence>
-        {error && <div className="video-error"><p>{error}</p><code>{version.path}</code></div>}
+        {/* Click feedback: a brief play/pause glyph in the middle of the frame. */}
+        <AnimatePresence>
+          {flash && !tool && (
+            <motion.div key={flash.n} className="stage-flash" initial={{ opacity: 0.9, scale: 0.8 }} animate={{ opacity: 0, scale: 1.15 }} transition={{ duration: 0.5, ease }} onAnimationComplete={() => setFlash(null)}>
+              {flash.playing ? <IPlay size={26} /> : <IPause size={26} />}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {buffering && !error && (
+            <motion.div key="buf" className="stage-buffering" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} role="status" aria-label="Loading video">
+              <div className="spinner" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {autoplayLimit === 'muted' && (
+            <motion.button key="unmute" className="stage-pill" onClick={() => { if (player.el) player.el.muted = false; }}
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} transition={{ duration: 0.18, ease }}
+              {...tip('Your browser started this video without sound', 'M', { aria: false })}>
+              <IMute size={15} /> Sound off · Click to unmute
+            </motion.button>
+          )}
+          {autoplayLimit === 'blocked' && !error && (
+            <motion.button key="blocked" className="stage-bigplay" onClick={() => { player.play(); setAutoplayLimit(null); }}
+              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={spring.pop}
+              {...tip('Play', 'Space')}>
+              <IPlay size={26} />
+            </motion.button>
+          )}
+        </AnimatePresence>
+        {error && <div className="video-error" role="alert"><p>{error}</p><code>{version.path}</code></div>}
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ export const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
     [['R'], 'Start / stop a voice note'], [['↩'], 'Post comment'], [['Esc'], 'Cancel'],
   ] },
   { group: 'Review', items: [
-    [['[', ']'], 'Previous / next comment'], [['\\'], 'Toggle comments panel'], [['⌘↩'], 'Send revisions to agent'], [['⌘O'], 'Open video'], [['?'], 'Show shortcuts'],
+    [['[', ']'], 'Previous / next comment'], [['\\'], 'Toggle comments panel'], [['⌘↩'], 'Send revisions to agent'], [['⌘O'], 'Add video'], [['?'], 'Show shortcuts'],
   ] },
 ];
 
@@ -32,6 +32,8 @@ export function useReviewShortcuts() {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key === 'Enter') { e.preventDefault(); (window as any).__bottleSend?.(); return; }
       if (typing(e)) return;
+      // Space/Enter on a focused button activate that button; don't also toggle playback.
+      if ((e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement)?.closest?.('button, a, [role="menuitem"], [role="menuitemradio"]')) return;
       if (mod && e.key.toLowerCase() === 'z') {
         if (s.draft?.shapes.length) { e.preventDefault(); s.patchDraft({ shapes: s.draft.shapes.slice(0, -1) }); }
         return;

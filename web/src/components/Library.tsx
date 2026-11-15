@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
-import { useStore, openVideo } from '../lib/store';
+import { useStore, addVideo, playVideo } from '../lib/store';
+import { tip } from './Tooltip';
 import { posterUrl } from '../lib/api';
 import { tc, ago } from '../lib/time';
 import { BottleMark, IFilm, IPlay, IPlus } from './Icons';
@@ -8,7 +9,6 @@ import { ease, spring } from '../lib/motion';
 export function Library() {
   const videos = useStore((s) => s.videos);
   const loaded = useStore((s) => s.videosLoaded);
-  const go = useStore((s) => s.go);
 
   if (loaded && videos.length === 0) return <Empty />;
 
@@ -17,9 +17,9 @@ export function Library() {
       <header className="topbar">
         <div className="crumbs"><span className="crumb-current">Library</span></div>
         <div className="topbar-right">
-          <motion.button whileTap={{ scale: 0.96 }} className="btn primary" onClick={() => openVideo()}>
-            <IPlus size={16} /> Open video
-          </motion.button>
+          <button className="btn primary" onClick={() => addVideo()} {...tip('Add a video from this Mac', ['⌘', 'O'], { side: 'bottom', aria: false })}>
+            <IPlus size={16} /> Add video
+          </button>
         </div>
       </header>
       <div className="lib-scroll">
@@ -28,12 +28,10 @@ export function Library() {
             <motion.button
               key={v.id}
               className="card"
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0, transition: { delay: Math.min(i, 12) * 0.045, duration: 0.5, ease } }}
-              whileHover={{ y: -3 }}
-              whileTap={{ scale: 0.985 }}
-              transition={spring.soft}
-              onClick={() => { useStore.setState({ versionId: null, draft: null, tool: null, selectedId: null }); go({ name: 'review', id: v.id }); }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0, transition: { delay: Math.min(i, 12) * 0.03, duration: 0.3, ease } }}
+              onClick={() => playVideo(v.id)}
+              aria-label={`Play ${v.title}`}
             >
               <div className="card-media">
                 {v.latest && <img src={posterUrl(v.latest.id)} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
@@ -70,13 +68,13 @@ function Empty() {
         Review a cut. <span className="dim">Hand it back.</span>
       </motion.h1>
       <motion.p className="empty-sub" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6, ease }}>
-        Open any video on this Mac. Draw on frames, talk over it, pin notes to the exact moment —
-        then send it all to your agent. Nothing leaves your computer.
+        Add any video on this Mac to your library. Draw on frames, talk over it, pin notes to the
+        exact moment, then send it all to your agent. Your files stay where they are.
       </motion.p>
       <motion.div className="empty-actions" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28, duration: 0.6, ease }}>
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} transition={spring.pop} className="btn primary lg" onClick={() => openVideo()}>
-          <IPlus size={18} /> Open video <kbd className="kbd-inline">⌘O</kbd>
-        </motion.button>
+        <button className="btn primary lg" onClick={() => addVideo()}>
+          <IPlus size={18} /> Add video <kbd className="kbd-inline">⌘O</kbd>
+        </button>
       </motion.div>
       <motion.div className="empty-agent" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45, duration: 0.8 }}>
         <span className="dim">or let your agent add one:</span> <code>add_video("/path/to/cut.mp4")</code>

@@ -9,6 +9,7 @@ import { createTranscriber, type LiveTranscriber } from '../lib/transcriber';
 import { tc } from '../lib/time';
 import { spring } from '../lib/motion';
 import { DotWave, IArrowUp, IPen, IStop, IX } from './Icons';
+import { tip } from './Tooltip';
 
 /** Imperative handle so keyboard shortcuts and the timeline can drive the composer. */
 export const composer = {
@@ -28,6 +29,9 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const [trFailed, setTrFailed] = useState(false);
+  /** Waiting on the browser's microphone permission (can take a while if a prompt is open). */
+  const [asking, setAsking] = useState(false);
+  const askId = useRef(0);
   const shake = useAnimationControls();
   const nowRef = useRef<HTMLSpanElement>(null);
 
@@ -43,12 +47,28 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
 
   const startRecording = async () => {
     if (!VoiceRecorder.supported()) { useStore.getState().toast({ text: 'Recording isn’t supported in this browser.', tone: 'error' }); return; }
+    // Pressing R again while we're still waiting for permission cancels the request.
+    if (asking) { askId.current++; setAsking(false); return; }
     anchor();
     const r = new VoiceRecorder();
-    try { await r.start(); } catch {
-      useStore.getState().toast({ text: 'Microphone access was blocked. Allow it in the browser’s site settings.', tone: 'error' });
+    const id = ++askId.current;
+    setAsking(true);
+    const slow = window.setTimeout(() => {
+      if (askId.current === id) useStore.getState().toast({ text: 'Waiting for your microphone', sub: 'Allow access in the browser prompt, or press R to cancel.', ms: 6000 });
+    }, 2500);
+    try { await r.start(); } catch (e: any) {
+      clearTimeout(slow);
+      if (askId.current !== id) return;
+      setAsking(false);
+      const blocked = e?.name === 'NotAllowedError' || e?.name === 'SecurityError';
+      useStore.getState().toast(blocked
+        ? { text: 'Microphone is blocked', sub: 'Allow it in your browser’s site settings, then press R again.', tone: 'error' }
+        : { text: 'No microphone found', sub: 'Connect one, then press R again.', tone: 'error' });
       return;
     }
+    clearTimeout(slow);
+    if (askId.current !== id) { r.cancel(); return; } // cancelled while waiting
+    setAsking(false);
     rec.current = r;
     const lv: number[] = [];
     r.onLevel = (l) => { if ((tr.current as any)?.failed) setTrFailed(true); lv.push(l); if (lv.length > 40) lv.shift(); setLevels([...lv]); setElapsed(r.elapsed()); };
@@ -78,7 +98,8 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
     const d = st.draft;
     const text = inputRef.current?.value ?? d?.text ?? '';
     if (!d || (!text.trim() && !d.shapes.length && !d.audio && !d.transcript)) {
-      shake.start({ x: [0, -6, 6, -4, 4, 0], transition: { duration: 0.35 } });
+      // Same damped nudge as the reference app: -4, 3.5, -2.5, 1.5, -0.5px.
+      shake.start({ x: [0, -4, 3.5, -2.5, 1.5, -0.5, 0], transition: { duration: 0.4, ease: 'easeOut' } });
       inputRef.current?.focus();
       return;
     }
@@ -90,14 +111,15 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
       st.clearDraft();
       if (inputRef.current) { inputRef.current.value = ''; inputRef.current.style.height = ''; inputRef.current.blur(); }
       st.set({ selectedId: c.id });
-      st.toast({ text: `Comment pinned at ${tc(c.timestamp)}`, tone: 'accent' });
+      st.toast({ text: `Comment pinned at ${tc(c.timestamp)}`, sub: 'It goes to your agent when you press Send to agent.', tone: 'accent' });
       st.loadVideos();
     } catch (e: any) {
       st.toast({ text: e.message, tone: 'error' });
     } finally { setBusy(false); }
   };
 
-  composer.focus = (t?: number) => { anchor(t); requestAnimationFrame(() => inputRef.current?.focus()); };
+  // Focus synchronously so keys typed right after pressing C land in the box, not on shortcuts.
+  composer.focus = (t?: number) => { anchor(t); inputRef.current?.focus({ preventScroll: true }); };
   composer.toggleRecord = toggleRecord;
   composer.post = post;
 
@@ -122,10 +144,14 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
         )}
       </AnimatePresence>
       <motion.div layout className={`fb-bar ${recording ? 'recording' : ''} ${hasDraft ? 'composing' : ''}`} transition={spring.bar}>
-        <motion.button layout className="fb-voice" onClick={toggleRecord} transition={spring.bar} title={recording ? 'Stop recording (R)' : 'Record a voice note (R)'} aria-pressed={recording}>
+        <motion.button layout className={`fb-voice ${asking ? 'asking' : ''}`} onClick={toggleRecord} transition={spring.bar} aria-pressed={recording} aria-busy={asking} {...tip(asking ? 'Waiting for microphone · click to cancel' : recording ? 'Stop recording' : draft?.audio ? 'Record the voice note again' : 'Record a voice note', 'R', { aria: false })}>
           <span className={`fb-wave ${recording ? 'live' : ''}`}><DotWave levels={recording ? levels.map((l) => Math.min(1, l * 1.6)) : undefined} live={recording} /></span>
           <AnimatePresence mode="popLayout" initial={false}>
-            {recording ? (
+            {asking ? (
+              <motion.span key="ask" className="fb-voice-label" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring.pop}>
+                <i className="live-dot" /> Allow mic…
+              </motion.span>
+            ) : recording ? (
               <motion.span key="rec" className="fb-voice-label rec mono" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring.pop}>
                 {tc(elapsed)} <IStop size={14} />
               </motion.span>
@@ -138,12 +164,13 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
         </motion.button>
 
         <div className="fb-input">
-          <button className={`time-chip mono ${hasDraft ? 'pinned' : ''}`} onClick={() => { if (draft) player.seek(draft.t); else anchor(); }} title={hasDraft ? 'This comment is pinned here — click to jump back' : 'Comment at the current frame'}>
+          <button className={`time-chip mono ${hasDraft ? 'pinned' : ''}`} onClick={() => { if (draft) player.seek(draft.t); else anchor(); }} {...tip(hasDraft ? 'Pinned here · click to jump back' : 'Comment at this frame', hasDraft ? undefined : 'C')}>
             {hasDraft ? tc(draft!.t, true) : <span ref={nowRef}>{tc(timeBus.get(), true)}</span>}
           </button>
           <textarea
             ref={inputRef}
             rows={1}
+            aria-label="Comment"
             placeholder={recording ? 'Type while you talk…' : 'Leave feedback…'}
             onFocus={() => anchor()}
             onChange={(e) => {
@@ -152,7 +179,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); post(); }
-              if (e.key === 'Escape') { e.preventDefault(); if (rec.current) { rec.current.cancel(); rec.current = null; tr.current?.stop(); } useStore.getState().clearDraft(); (e.target as HTMLTextAreaElement).blur(); }
+              if (e.key === 'Escape') { e.preventDefault(); askId.current++; setAsking(false); if (rec.current) { rec.current.cancel(); rec.current = null; tr.current?.stop(); } useStore.getState().clearDraft(); (e.target as HTMLTextAreaElement).blur(); }
               e.stopPropagation();
             }}
           />
@@ -160,25 +187,25 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
             {!!draft?.shapes.length && (
               <motion.span key="d" className="att" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={spring.pop}>
                 <IPen size={12} /> {draft.shapes.length}
-                <button onClick={() => useStore.getState().patchDraft({ shapes: [] })} aria-label="Remove drawing"><IX size={11} /></button>
+                <button onClick={() => useStore.getState().patchDraft({ shapes: [] })} {...tip('Remove drawing')}><IX size={11} /></button>
               </motion.span>
             )}
             {draft?.audio && (
               <motion.span key="a" className="att voice" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={spring.pop}>
-                <button className="att-play" onClick={() => new Audio(draft.audio!.url).play()} aria-label="Play voice note">▶</button>
+                <button className="att-play" onClick={() => new Audio(draft.audio!.url).play()} {...tip('Play voice note')}>▶</button>
                 <span className="mono">{tc(draft.audio.duration)}</span>
-                <button onClick={() => useStore.getState().patchDraft({ audio: null, transcript: '' })} aria-label="Remove voice note"><IX size={11} /></button>
+                <button onClick={() => useStore.getState().patchDraft({ audio: null, transcript: '' })} {...tip('Remove voice note')}><IX size={11} /></button>
               </motion.span>
             )}
           </AnimatePresence>
         </div>
 
-        <button className={`fb-icon ${tool ? 'on' : ''}`} onClick={() => { if (tool) useStore.getState().set({ tool: null }); else { anchor(); useStore.getState().set({ tool: 'pen' }); } }} title="Draw on the frame (D)" aria-pressed={!!tool}>
+        <button className={`fb-icon ${tool ? 'on' : ''}`} onClick={() => { if (tool) useStore.getState().set({ tool: null }); else { anchor(); useStore.getState().set({ tool: 'pen' }); } }} aria-pressed={!!tool} {...tip(tool ? 'Stop drawing' : 'Draw on the frame', tool ? 'Esc' : 'D')}>
           <IPen size={17} />
         </button>
-        <motion.button className="fb-send" onClick={post} whileTap={{ scale: 0.88 }} transition={spring.pop} title="Post comment (Enter)" aria-label="Post comment" disabled={busy}>
-          <IArrowUp size={16} />
-        </motion.button>
+        <button className={`fb-send ${busy ? 'busy' : ''}`} onClick={post} aria-busy={busy} {...tip('Post comment', '↩')}>
+          {busy ? <span className="spinner sm" /> : <IArrowUp size={16} />}
+        </button>
       </motion.div>
     </motion.div>
   );

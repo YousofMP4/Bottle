@@ -6,7 +6,8 @@ import { api, audioUrl } from '../lib/api';
 import { player } from '../lib/bus';
 import { tc, ago } from '../lib/time';
 import { spring } from '../lib/motion';
-import { IBot, ICheck, IMic, IPen, IReply, ITrash, IEye } from './Icons';
+import { IPause, IPlay, IBot, ICheck, IMic, IPen, IReply, ITrash, IEye } from './Icons';
+import { tip } from './Tooltip';
 
 export function CommentsPanel({ version, comments, rounds }: { version: Version; comments: Comment[]; rounds: Round[] }) {
   const filter = useStore((s) => s.filter);
@@ -75,13 +76,29 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
     const u = await api.updateComment(c.id, { status: c.status === 'open' ? 'resolved' : 'open' });
     useStore.getState().upsertComment(u); useStore.getState().loadVideos();
   };
-  const del = async (e: React.MouseEvent) => {
+  // Deleting is undoable: hide it now, delete on the server only if Undo isn't pressed.
+  const del = (e: React.MouseEvent) => {
     e.stopPropagation();
-    await api.deleteComment(c.id);
-    const d = useStore.getState().detail;
-    if (d) useStore.setState({ detail: { ...d, comments: d.comments.filter((x) => x.id !== c.id && x.parent_id !== c.id) } });
-    useStore.getState().toast({ text: 'Comment deleted' });
-    useStore.getState().loadVideos();
+    const st = useStore.getState();
+    const d = st.detail;
+    if (!d) return;
+    const removed = d.comments.filter((x) => x.id === c.id || x.parent_id === c.id);
+    useStore.setState({ detail: { ...d, comments: d.comments.filter((x) => !removed.includes(x)) }, selectedId: st.selectedId === c.id ? null : st.selectedId });
+    let undone = false;
+    const timer = window.setTimeout(async () => {
+      if (undone) return;
+      try { await api.deleteComment(c.id); } catch { /* already gone */ }
+      useStore.getState().loadVideos();
+    }, 5000);
+    st.toast({
+      text: 'Comment deleted',
+      ms: 5000,
+      action: { label: 'Undo', run: () => {
+        undone = true; clearTimeout(timer);
+        const cur = useStore.getState().detail;
+        if (cur && cur.video.id === c.video_id) useStore.setState({ detail: { ...cur, comments: [...cur.comments, ...removed] } });
+      } },
+    });
   };
   const sendReply = async () => {
     if (!reply.trim()) return;
@@ -106,16 +123,16 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
         <span className="c-author">{c.author}</span>
         <span className="c-ago dim">{ago(c.created_at)}</span>
         <span className="grow" />
-        {!sent && c.status === 'open' && <span className="tag draft" title="Not sent to your agent yet">Unsent</span>}
-        {sent && <span className="tag" title={`Sent in round ${round!.number}`}>R{round!.number}</span>}
-        <button className="time-chip mono sm" onClick={(e) => { e.stopPropagation(); jump(); }}>{tc(c.timestamp, true)}</button>
+        {!sent && c.status === 'open' && <span className="tag draft" {...tip('Not sent to your agent yet', undefined, { aria: false })}>Unsent</span>}
+        {sent && <span className="tag" {...tip(`Sent to your agent in round ${round!.number}`, undefined, { aria: false })}>R{round!.number}</span>}
+        <button className="time-chip mono sm" onClick={(e) => { e.stopPropagation(); jump(); }} {...tip(`Jump to ${tc(c.timestamp, true)}`, undefined, { side: 'left' })}>{tc(c.timestamp, true)}</button>
       </div>
       {c.text && <p className="c-text">{c.text}</p>}
       {(c.audio || c.transcript) && <VoiceNote c={c} />}
       {c.drawing && (
         <div className="c-drawing">
           <IPen size={12} /> {c.drawing.shapes.length} mark{c.drawing.shapes.length === 1 ? '' : 's'} on frame
-          <a className="link sm" href={`/api/frame.png?revisionId=${c.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Exactly what your agent will see">
+          <a className="link sm" href={`/api/frame.png?revisionId=${c.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} {...tip('Open exactly what your agent will see', undefined, { aria: false })}>
             <IEye size={12} /> Agent view
           </a>
         </div>
@@ -139,7 +156,7 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
         {replying && (
           <motion.form className="reply-form" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring.bar}
             onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); sendReply(); }}>
-            <input autoFocus className="field sm" value={reply} placeholder="Reply…" onChange={(e) => setReply(e.target.value)}
+            <input autoFocus className="field sm" value={reply} placeholder="Reply…  ↩ to send, Esc to cancel" aria-label="Reply" onChange={(e) => setReply(e.target.value)}
               onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') setReplying(false); }} />
           </motion.form>
         )}
@@ -148,7 +165,7 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
         <button className="c-act" onClick={() => setReplying((r) => !r)}><IReply size={13} /> Reply</button>
         <button className={`c-act ${c.status === 'resolved' ? 'on' : ''}`} onClick={toggleResolve}><ICheck size={13} /> {c.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
         <span className="grow" />
-        <button className="c-act icon danger" onClick={del} aria-label="Delete comment"><ITrash size={13} /></button>
+        <button className="c-act icon danger" onClick={del} {...tip('Delete comment', undefined, { side: 'left' })}><ITrash size={13} /></button>
       </div>
     </motion.article>
   );
@@ -174,8 +191,8 @@ function VoiceNote({ c }: { c: Comment }) {
   return (
     <div className="voice-note">
       {c.audio && (
-        <button className="vn-play" onClick={toggle} aria-label={playing ? 'Pause voice note' : 'Play voice note'}>
-          {playing ? '❚❚' : '▶'}
+        <button className="vn-play" onClick={toggle} {...tip(playing ? 'Pause voice note' : 'Play voice note')}>
+          {playing ? <IPause size={12} /> : <IPlay size={12} />}
         </button>
       )}
       {c.audio && (

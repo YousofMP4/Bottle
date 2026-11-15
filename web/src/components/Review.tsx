@@ -10,6 +10,7 @@ import { FeedbackBar, composer } from './FeedbackBar';
 import { CommentsPanel } from './CommentsPanel';
 import { Popover } from './Popover';
 import { useReviewShortcuts } from '../lib/shortcuts';
+import { tip } from './Tooltip';
 import { ICopy, IFolder, IMore, IPanel, ISend, ITrash, IChevronRight, ICheck } from './Icons';
 
 export function Review({ id }: { id: string }) {
@@ -74,18 +75,23 @@ function TopBar({ title, videoId, versionId, unsent }: { title: string; videoId:
   const [sending, setSending] = useState(false);
   const [justSent, setJustSent] = useState(false);
 
+  const [copied, setCopied] = useState(false);
   const copy = async () => {
-    const { text } = await api.agentMessage(videoId);
-    try { await navigator.clipboard.writeText(text); toast({ text: 'Message for your agent copied — paste it into Claude.', tone: 'accent' }); }
-    catch { toast({ text: 'Couldn’t access the clipboard.', tone: 'error' }); }
+    try {
+      const { text } = await api.agentMessage(videoId);
+      await navigator.clipboard.writeText(text);
+      setCopied(true); setTimeout(() => setCopied(false), 1600);
+      toast({ text: 'Message copied', sub: 'Paste it into Claude to hand over every open note.', tone: 'accent' });
+    } catch { toast({ text: 'Couldn’t copy the message', sub: 'Your browser blocked clipboard access.', tone: 'error' }); }
   };
   const send = async () => {
     if (sending) return;
+    if (unsent === 0) { toast({ text: 'Nothing new to send', sub: 'Leave a comment first. Everything else has already gone to your agent.' }); return; }
     setSending(true);
     try {
       const r = await api.submit(videoId);
       const extra = r.results.filter((x) => x.channel !== 'mcp').map((x) => (x.ok ? `${x.channel} ✓` : `${x.channel} failed`));
-      toast({ text: `Round ${r.round.number} sent · ${r.count} revision${r.count === 1 ? '' : 's'}${extra.length ? ' · ' + extra.join(' · ') : ''}`, tone: 'accent', action: { label: 'Copy message', run: copy }, ms: 6500 });
+      toast({ text: `Round ${r.round.number} sent to your agent`, sub: `${r.count} revision${r.count === 1 ? '' : 's'}${extra.length ? ' · ' + extra.join(' · ') : ''}`, tone: 'accent', action: { label: 'Copy message', run: copy }, ms: 6500 });
       setJustSent(true); setTimeout(() => setJustSent(false), 1800);
       useStore.getState().loadDetail(videoId); useStore.getState().loadVideos();
     } catch (e: any) { toast({ text: e.message, tone: 'error' }); }
@@ -103,30 +109,35 @@ function TopBar({ title, videoId, versionId, unsent }: { title: string; videoId:
             onBlur={async (e) => { setEditing(false); if (e.target.value.trim() && e.target.value !== title) { await api.rename(videoId, e.target.value); useStore.getState().loadDetail(videoId); useStore.getState().loadVideos(); } }}
             onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }} />
         ) : (
-          <button className="crumb-current" onDoubleClick={() => setEditing(true)} title="Double-click to rename">{title}</button>
+          <button className="crumb-current" onDoubleClick={() => setEditing(true)} {...tip('Double-click to rename', undefined, { side: 'bottom', aria: false })}>{title}</button>
         )}
-        <Popover placement="down" trigger={() => <button className="icon-btn" aria-label="More"><IMore size={16} /></button>}>
+        <Popover placement="down" trigger={(open) => <button className={`icon-btn ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip('More actions', undefined, { side: 'bottom' })}><IMore size={16} /></button>}>
           {(close) => (
             <div className="menu">
               <button className="menu-item" onClick={() => { close(); setEditing(true); }}>Rename</button>
               <button className="menu-item" onClick={() => { close(); api.reveal(versionId); }}><IFolder size={15} /> Show file in Finder</button>
               <div className="menu-sep" />
-              <button className="menu-item danger" onClick={async () => { close(); await api.removeVideo(videoId); useStore.getState().loadVideos(); go({ name: 'library' }); toast({ text: 'Removed from Bottle. Your file is untouched.' }); }}>
-                <ITrash size={15} /> Remove from Bottle
+              <button className="menu-item danger" onClick={async () => { close(); await api.removeVideo(videoId); useStore.getState().loadVideos(); go({ name: 'library' }); toast({ text: 'Removed from your library', sub: 'The video file itself is untouched.' }); }}>
+                <ITrash size={15} /> Remove from library
               </button>
             </div>
           )}
         </Popover>
       </div>
       <div className="topbar-right">
-        <button className="round-btn" onClick={copy} title="Copy message for my agent"><ICopy size={16} /></button>
-        <button className={`round-btn ${panelOpen ? 'on' : ''}`} onClick={() => set({ panelOpen: !panelOpen })} title="Comments (\)"><IPanel size={16} /></button>
+        <button className="round-btn" onClick={copy} {...tip('Copy message for your agent', undefined, { side: 'bottom' })}>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span key={copied ? 'ok' : 'copy'} className="center" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} transition={spring.pop}>
+              {copied ? <ICheck size={16} /> : <ICopy size={16} />}
+            </motion.span>
+          </AnimatePresence>
+        </button>
+        <button className={`round-btn ${panelOpen ? 'on' : ''}`} onClick={() => set({ panelOpen: !panelOpen })} aria-pressed={panelOpen} {...tip(panelOpen ? 'Hide comments' : 'Show comments', '\\', { side: 'bottom' })}><IPanel size={16} /></button>
         <motion.button
-          className={`btn primary send ${justSent ? 'sent' : ''}`}
+          className={`btn primary send ${justSent ? 'sent' : ''} ${unsent === 0 && !justSent ? 'idle' : ''}`}
           onClick={send}
-          disabled={sending || unsent === 0}
-          whileTap={{ scale: 0.96 }}
-          title="Send revisions to agent (⌘↩)"
+          aria-disabled={sending || unsent === 0}
+          {...tip(unsent === 0 ? 'Nothing new to send' : `Send ${unsent} revision${unsent === 1 ? '' : 's'} to your agent`, unsent === 0 ? undefined : ['⌘', '↩'], { side: 'bottom', aria: false })}
           layout
           transition={spring.morph}
         >
@@ -135,7 +146,7 @@ function TopBar({ title, videoId, versionId, unsent }: { title: string; videoId:
               <motion.span key="ok" className="row gap-s" initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -10, opacity: 0 }} transition={spring.pop}><ICheck size={15} /> Sent</motion.span>
             ) : (
               <motion.span key="send" className="row gap-s" initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -10, opacity: 0 }} transition={spring.pop}>
-                <ISend size={15} /> Send to agent
+                <ISend size={15} /> <span className="send-label">Send to agent</span>
                 <AnimatePresence>{unsent > 0 && <motion.span key={unsent} className="send-count" initial={{ scale: 0.4 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={spring.pop}>{unsent}</motion.span>}</AnimatePresence>
               </motion.span>
             )}

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, type ReactNode } from 'react';
 import { spring } from '../lib/motion';
 import { IX } from './Icons';
+import { tip } from './Tooltip';
 
 export function Dialog({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -25,7 +26,7 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
           >
             <header className="dialog-head">
               <h2>{title}</h2>
-              <button className="icon-btn" onClick={onClose} aria-label="Close"><IX size={16} /></button>
+              <button className="icon-btn" onClick={onClose} {...tip('Close', 'Esc', { side: 'bottom' })}><IX size={16} /></button>
             </header>
             <div className="dialog-body">{children}</div>
           </motion.div>

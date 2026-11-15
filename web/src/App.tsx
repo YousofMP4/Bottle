@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { useStore, parseHash, openVideo } from './lib/store';
+import { useStore, parseHash, addVideo } from './lib/store';
 import { api } from './lib/api';
 import { Sidebar } from './components/Sidebar';
 import { Library } from './components/Library';
@@ -9,6 +9,7 @@ import { Toasts } from './components/Toasts';
 import { SettingsDialog } from './components/Settings';
 import { ShortcutsDialog } from './components/Shortcuts';
 import { PasteDialog } from './components/PasteDialog';
+import { TooltipLayer } from './components/Tooltip';
 import { view } from './lib/motion';
 
 export function App() {
@@ -42,11 +43,21 @@ export function App() {
 
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openVideo(); }
+      if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); addVideo(); }
       if (mod && e.key === ',') { e.preventDefault(); useStore.getState().set({ dialog: 'settings' }); }
     };
     window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); es?.close(); };
+
+    // Raised controls get a soft light that follows the pointer (CSS reads --mx / --my).
+    const onMove = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement)?.closest?.('.btn, .round-btn, .pill-btn') as HTMLElement | null;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      el.style.setProperty('--my', `${e.clientY - r.top}px`);
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); window.removeEventListener('pointermove', onMove); es?.close(); };
   }, []);
 
   return (
@@ -66,6 +77,7 @@ export function App() {
         <SettingsDialog />
         <ShortcutsDialog />
         <PasteDialog />
+        <TooltipLayer />
       </div>
     </MotionConfig>
   );

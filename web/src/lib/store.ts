@@ -3,7 +3,7 @@ import type { Comment, Settings, Shape, Tool, VideoDetail, VideoSummary } from '
 import { api } from './api';
 import type { Recording } from './recorder';
 
-export interface Toast { id: number; text: string; tone?: 'default' | 'accent' | 'error'; action?: { label: string; run: () => void }; ms?: number }
+export interface Toast { id: number; text: string; sub?: string; tone?: 'default' | 'accent' | 'error'; action?: { label: string; run: () => void }; ms?: number }
 
 export type Route = { name: 'library' } | { name: 'review'; id: string; v?: number };
 
@@ -39,6 +39,9 @@ interface State {
   selectedId: string | null;
   filter: 'open' | 'resolved' | 'all';
   playing: boolean;
+  /** Set right before routing into a video from a click, so the player starts on its own. */
+  autoplay: boolean;
+  muted: boolean;
   rate: number;
 
   go(r: Route): void;
@@ -66,13 +69,16 @@ export const useStore = create<State>((set, get) => ({
   dialog: null,
   pasteFor: undefined,
   versionId: null,
-  panelOpen: typeof window !== 'undefined' ? window.innerWidth >= 1100 : true,
+  // Below 1180px the panel floats over the video, so start with it closed there.
+  panelOpen: typeof window !== 'undefined' ? window.innerWidth >= 1180 : true,
   draft: null,
   tool: null,
   color: '#ff5a4e',
   selectedId: null,
   filter: 'open',
   playing: false,
+  autoplay: false,
+  muted: false,
   rate: 1,
 
   go(r) {
@@ -98,20 +104,21 @@ export const useStore = create<State>((set, get) => ({
       if (prev !== null && d.versions.length > prev) {
         const nv = d.versions[d.versions.length - 1];
         get().toast({
-          text: `v${nv.number} just arrived — ${nv.filename}`,
+          text: `v${nv.number} just arrived`,
+          sub: nv.filename,
           tone: 'accent',
-          action: { label: `Open v${nv.number}`, run: () => get().set({ versionId: nv.id, selectedId: null, draft: null, tool: null }) },
+          action: { label: `Play v${nv.number}`, run: () => get().set({ versionId: nv.id, selectedId: null, draft: null, tool: null, autoplay: true }) },
           ms: 8000,
         });
       }
     } catch (e: any) {
-      if (e.status === 404) { get().go({ name: 'library' }); get().toast({ text: 'That video is no longer in Bottle.' }); }
+      if (e.status === 404) { get().go({ name: 'library' }); get().toast({ text: 'That video is no longer in your library.' }); }
     }
   },
   toast(t) {
     const id = toastId++;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { ...t, id }] }));
-    setTimeout(() => get().dismiss(id), t.ms ?? (t.action ? 6000 : 3200));
+    setTimeout(() => get().dismiss(id), t.ms ?? (t.action || t.tone === 'error' ? 6000 : t.sub ? 4200 : 3200));
   },
   dismiss(id) { set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })); },
   set(p) { set(p); },
@@ -131,8 +138,8 @@ export function parseHash(): Route {
   return m ? { name: 'review', id: m[1], v: m[2] ? Number(m[2]) : undefined } : { name: 'library' };
 }
 
-/** Open the native file picker (or the paste dialog) and route into the review. */
-export async function openVideo(videoId?: string) {
+/** Open the native file picker (or the paste dialog), add the file to the library and route into it. */
+export async function addVideo(videoId?: string) {
   const s = useStore.getState();
   try {
     const r = await api.pick(videoId);
@@ -147,9 +154,18 @@ export async function openVideo(videoId?: string) {
 export function afterAdd(r: { outcome: string; video: { id: string; title: string }; version: { id: string; number: number } }) {
   const s = useStore.getState();
   s.loadVideos();
-  s.set({ versionId: r.version.id, draft: null, tool: null, selectedId: null });
+  s.set({ versionId: r.version.id, draft: null, tool: null, selectedId: null, autoplay: true });
   s.go({ name: 'review', id: r.video.id });
   s.loadDetail(r.video.id);
-  if (r.outcome === 'new_version') s.toast({ text: `Added as v${r.version.number} of “${r.video.title}”`, tone: 'accent' });
-  else if (r.outcome === 'unchanged') s.toast({ text: 'Already in Bottle — opened it for you.' });
+  if (r.outcome === 'new_version') s.toast({ text: `Added to your library as v${r.version.number} of “${r.video.title}”`, tone: 'accent' });
+  else if (r.outcome === 'unchanged') s.toast({ text: 'Already in your library. Opened it for you.' });
+  else s.toast({ text: `Added “${r.video.title}” to your library`, tone: 'accent' });
+}
+
+/** Route into a video from a click (library card, sidebar row). The click is the user gesture, so it autoplays. */
+export function playVideo(id: string) {
+  const s = useStore.getState();
+  s.set({ versionId: null, draft: null, tool: null, selectedId: null, autoplay: true });
+  s.go({ name: 'review', id });
+  s.loadDetail(id); // start fetching now, not after the view transition
 }

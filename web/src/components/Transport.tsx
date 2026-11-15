@@ -1,54 +1,57 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Comment, Version } from '../../../server/types';
-import { useStore, openVideo } from '../lib/store';
+import { useStore, addVideo } from '../lib/store';
 import { mediaUrl } from '../lib/api';
 import { player, timeBus } from '../lib/bus';
 import { tc, ago, clamp } from '../lib/time';
 import { spring } from '../lib/motion';
 import { IChevronLeft, IChevronRight, IExpand, IMute, IPause, IPlay, IPlus, IVolume } from './Icons';
 import { Popover } from './Popover';
+import { tip } from './Tooltip';
 
 export function Transport({ version, versions, comments, onComposeAt }: { version: Version; versions: Version[]; comments: Comment[]; onComposeAt: (t: number) => void }) {
   const playing = useStore((s) => s.playing);
   const rate = useStore((s) => s.rate);
-  const [muted, setMuted] = useState(false);
+  const muted = useStore((s) => s.muted);
 
   return (
     <div className="transport">
-      <motion.button whileTap={{ scale: 0.9 }} className="round-btn play" onClick={() => player.toggle()} aria-label={playing ? 'Pause (Space)' : 'Play (Space)'} title={playing ? 'Pause (Space)' : 'Play (Space)'}>
+      <button className="round-btn play" onClick={() => player.toggle()} {...tip(playing ? 'Pause' : 'Play', 'Space')}>
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.span key={playing ? 'pause' : 'play'} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} transition={spring.pop} className="center">
             {playing ? <IPause size={16} /> : <IPlay size={16} />}
           </motion.span>
         </AnimatePresence>
-      </motion.button>
+      </button>
 
       <VersionChip version={version} versions={versions} />
       <TimeReadout duration={version.duration} />
       <Timeline version={version} comments={comments} onComposeAt={onComposeAt} />
 
       <div className="transport-right">
-        <button className="round-btn" onClick={() => player.step(-1)} title="Previous frame (←)" aria-label="Previous frame"><IChevronLeft size={16} /></button>
-        <button className="round-btn" onClick={() => player.step(1)} title="Next frame (→)" aria-label="Next frame"><IChevronRight size={16} /></button>
+        <div className="joined">
+          <button className="round-btn" onClick={() => player.step(-1)} {...tip('Previous frame', '←')}><IChevronLeft size={16} /></button>
+          <button className="round-btn" onClick={() => player.step(1)} {...tip('Next frame', '→')}><IChevronRight size={16} /></button>
+        </div>
         <Popover
-          trigger={(open) => <button className={`pill-btn mono ${open ? 'on' : ''} ${rate < 0 ? 'rev' : ''}`} title="Playback speed">{rate < 0 ? `◂${-rate}x` : `${rate}x`}</button>}
+          trigger={(open) => <button className={`pill-btn mono ${open ? 'on' : ''} ${rate < 0 ? 'rev' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(`Playback speed · ${rate < 0 ? `reverse ${-rate}x` : `${rate}x`}`, ['J', 'K', 'L'], { aria: true })}>{rate < 0 ? `◂${-rate}x` : `${rate}x`}</button>}
           align="end"
         >
           {(close) => (
             <div className="menu">
               {[0.25, 0.5, 1, 1.5, 2].map((r) => (
-                <button key={r} className={`menu-item ${Math.abs(rate) === r ? 'on' : ''}`} onClick={() => { player.stopReverse(); player.setRate(r); close(); }}>
+                <button key={r} role="menuitemradio" aria-checked={Math.abs(rate) === r} className={`menu-item ${Math.abs(rate) === r ? 'on' : ''}`} onClick={() => { player.stopReverse(); player.setRate(r); close(); }}>
                   <span className="mono">{r}x</span>{r === 1 && <span className="dim">Normal</span>}
                 </button>
               ))}
             </div>
           )}
         </Popover>
-        <button className="round-btn" onClick={() => { if (player.el) { player.el.muted = !player.el.muted; setMuted(player.el.muted); } }} title="Mute (M)" aria-label="Mute">
+        <button className={`round-btn ${muted ? 'on' : ''}`} onClick={() => { if (player.el) player.el.muted = !player.el.muted; else useStore.setState({ muted: !muted }); }} aria-pressed={muted} {...tip(muted ? 'Unmute' : 'Mute', 'M')}>
           {muted ? <IMute size={16} /> : <IVolume size={16} />}
         </button>
-        <button className="round-btn" onClick={() => toggleFullscreen()} title="Fullscreen (F)" aria-label="Fullscreen"><IExpand size={15} /></button>
+        <button className="round-btn" onClick={() => toggleFullscreen()} {...tip('Fullscreen', 'F')}><IExpand size={15} /></button>
       </div>
     </div>
   );
@@ -63,7 +66,7 @@ function TimeReadout({ duration }: { duration: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => timeBus.on((t) => { if (ref.current) ref.current.textContent = tc(t); }), []);
   return (
-    <div className="time mono" title="Current time / duration">
+    <div className="time mono" aria-label="Current time and duration">
       <span ref={ref} className="time-now">0:00</span><span className="time-sep">/</span><span className="dim">{tc(duration)}</span>
     </div>
   );
@@ -74,7 +77,7 @@ function VersionChip({ version, versions }: { version: Version; versions: Versio
   const comments = useStore((s) => s.detail?.comments ?? []);
   return (
     <Popover trigger={(open) => (
-      <button className={`pill-btn mono ${open ? 'on' : ''}`} title="Versions">v{version.number}</button>
+      <button className={`pill-btn mono ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(versions.length > 1 ? `Version ${version.number} of ${versions.length} · switch version` : 'Versions', undefined, { aria: true })}>v{version.number}</button>
     )}>
       {(close) => (
         <div className="menu versions-menu">
@@ -83,18 +86,20 @@ function VersionChip({ version, versions }: { version: Version; versions: Versio
             const open = comments.filter((c) => c.version_id === v.id && !c.parent_id && c.status === 'open').length;
             return (
               <button key={v.id} className={`menu-item ${v.id === version.id ? 'on' : ''}`} onClick={() => {
-                const t = player.time; set({ versionId: v.id, selectedId: null, draft: null, tool: null }); close();
+                const t = player.time;
+                const wasPlaying = !!player.el && !player.el.paused;
+                set({ versionId: v.id, selectedId: null, draft: null, tool: null, autoplay: wasPlaying }); close();
                 setTimeout(() => player.seek(Math.min(t, v.duration)), 80);
               }}>
                 <span className="mono ver-n">v{v.number}</span>
-                <span className="ver-file" title={v.path}>{v.filename}</span>
+                <span className="ver-file">{v.filename}</span>
                 {v.missing ? <span className="tag warn">missing</span> : open ? <span className="tag">{open} open</span> : null}
                 <span className="dim ver-ago">{ago(v.created_at)}</span>
               </button>
             );
           })}
           <div className="menu-sep" />
-          <button className="menu-item" onClick={() => { close(); openVideo(version.video_id); }}>
+          <button className="menu-item" onClick={() => { close(); addVideo(version.video_id); }}>
             <IPlus size={15} /> <span>Add new version…</span>
           </button>
         </div>
@@ -166,7 +171,7 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
 
   return (
     <div className="timeline" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => !dragging.current && setHover(null)}>
-      <div className="lane" title="Click to comment here (C)">
+      <div className="lane" aria-label="Comment lane: click to comment at a moment">
         <AnimatePresence>
           {roots.map((c) => (
             <Marker key={c.id} c={c} left={(c.timestamp / dur) * 100} selected={c.id === selectedId} />
@@ -176,6 +181,7 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
           {hover?.lane && (
             <motion.div className="ghost-marker" style={{ left: hover.x }} initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.4, opacity: 0 }} transition={spring.pop}>
               <IPlus size={11} />
+              <span className="ghost-label">Comment at {tc(hover.t)} <kbd className="keycap">C</kbd></span>
             </motion.div>
           )}
         </AnimatePresence>
