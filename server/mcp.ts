@@ -31,8 +31,8 @@ const wrap = <A>(fn: (a: A, extra: any) => Promise<any>) => async (a: A, extra: 
 };
 
 server.registerTool('add_video', {
-  title: 'Add a video for review',
-  description: 'Register a video file (absolute path on this computer) for human review. The file is referenced in place, never copied. If the path, title, or file name (ignoring suffixes like _v2/_final) matches an existing video, it is added as that video\'s next version (v2, v3…). Pass video_id to force it to be a new version of a specific video.',
+  title: 'Add a video to the library',
+  description: 'Add a video file (absolute path on this computer) to the reviewer\'s Bottle library so they can review it. The file is referenced in place, never copied. If the path, title, or file name (ignoring suffixes like _v2/_final) matches an existing video, it is added as that video\'s next version (v2, v3…). Pass video_id to force it to be a new version of a specific video.',
   inputSchema: {
     path: z.string().describe('Absolute path to the video file, e.g. /Users/me/Movies/promo_v2.mp4'),
     title: z.string().optional().describe('Human-friendly title. Defaults to the file name.'),

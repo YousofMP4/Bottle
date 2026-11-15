@@ -29,10 +29,11 @@ which you can put anywhere you like (Documents works).
 
 Your browser opens Bottle. Keep the small Terminal window open while you review, and close it when you're done.
 
-### 3. Click **Open video**
-<img src="docs/screenshots/empty.png" alt="Bottle's welcome screen with the Open video button" width="720">
+### 3. Click **Add video**
+<img src="docs/screenshots/empty.png" alt="Bottle's welcome screen with the Add video button" width="720">
 
-Pick any video in the Mac file picker and you're reviewing. That's it.
+Pick any video in the Mac file picker. It's added to your library and starts playing. That's it.
+Bottle keeps a reference to the file where it is (nothing is copied), so it's in your library next time too.
 
 ---
 
@@ -40,19 +41,20 @@ Pick any video in the Mac file picker and you're reviewing. That's it.
 
 | Do this | How |
 |---|---|
-| Play / pause | <kbd>Space</kbd> (or <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> to shuttle) |
+| Play / pause | <kbd>Space</kbd> (or <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> to shuttle). Clicking a video in your library starts it playing. |
 | Step one frame | <kbd>←</kbd> <kbd>→</kbd> |
 | Comment at this moment | <kbd>C</kbd>, or click just above the timeline |
 | Draw on the frame | <kbd>D</kbd>, then <kbd>1</kbd>–<kbd>4</kbd> for pen, arrow, box, circle |
 | Voice note | <kbd>R</kbd> to start, <kbd>R</kbd> to stop. A transcript is saved too, since agents can't hear audio |
 | Post the comment | <kbd>Enter</kbd> |
 | Send everything to your agent | **Send to agent** (<kbd>⌘</kbd><kbd>↩</kbd>) |
-| See every shortcut | <kbd>?</kbd> |
+| Add a video to your library | **Add video** (<kbd>⌘</kbd><kbd>O</kbd>) |
+| See every shortcut | <kbd>?</kbd>, or hover any button: its tooltip shows the shortcut |
 
 - **Versions:** when your agent saves a new cut (for example `promo_v2.mp4`), Bottle adds it as **v2** of the same
   video. Switch versions from the `v2` chip next to the play button. Each version keeps its own comments.
 - **Rounds:** comments stay "Unsent" until you press **Send to agent**. Then they go out together as one round.
-- **Your files are safe:** Bottle never copies, moves, changes or re-encodes a video. "Remove from Bottle" only
+- **Your files are safe:** Bottle never copies, moves, changes or re-encodes a video. "Remove from library" only
   removes it from the list.
 
 ## Connect your agent
@@ -77,7 +79,7 @@ When you send a round, your agent can hear about it in up to four ways, set in *
 
 | Tool | What it does |
 |---|---|
-| `add_video(path, title?)` | Add a video by its path. A matching name or path becomes the next version. |
+| `add_video(path, title?)` | Add a video to your library by its path (referenced in place, never copied). A matching name or path becomes the next version. |
 | `list_videos()` | Every video, with its latest version, file path and number of open revisions. |
 | `get_revisions(video_id, status="open")` | Structured JSON: timestamp, timecode, frame, text, voice transcript, a plain-words description of any drawing, author, status, replies. |
 | `get_frame(video_id, timestamp)` | The frame as an image **with your drawing burned in**, so the agent sees exactly what you circled. Pass `revision_id` to get that note's own frame. |
@@ -85,7 +87,7 @@ When you send a round, your agent can hear about it in up to four ways, set in *
 | `resolve_revision(id, note?)` | Mark it done, with an optional note. |
 | `wait_for_revisions(video_id, timeout)` | Waits until you press **Send to agent**, then returns that round. |
 
-<p align="center"><img src="docs/demo.gif" alt="30-second demo: open a video, draw, record a voice note, send to the agent, and see v2 arrive" width="900"></p>
+<p align="center"><img src="docs/demo.gif" alt="30-second demo: add a video, draw, record a voice note, send to the agent, and see v2 arrive" width="900"></p>
 
 ---
 

@@ -19,11 +19,11 @@ export function PasteDialog() {
     finally { setBusy(false); }
   };
   return (
-    <Dialog open={open} onClose={close} title="Open a video by path">
-      <p className="muted">Paste the full path of a video on this computer. Bottle plays it right where it is — nothing is copied.</p>
+    <Dialog open={open} onClose={close} title="Add a video by path">
+      <p className="muted">Paste the full path of a video on this computer. It’s added to your library and played right where it is. Nothing is copied.</p>
       <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="row gap">
         <input autoFocus className="field grow mono" placeholder="/Users/you/Movies/cut_v1.mp4" value={path} onChange={(e) => setPath(e.target.value)} />
-        <button className="btn primary" disabled={!path.trim() || busy}>{busy ? 'Opening…' : 'Open'}</button>
+        <button className="btn primary" disabled={!path.trim() || busy}>{busy ? 'Adding…' : 'Add video'}</button>
       </form>
       {err && <p className="error-text">{err}</p>}
     </Dialog>
