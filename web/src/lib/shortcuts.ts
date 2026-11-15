@@ -24,16 +24,38 @@ const typing = (e: KeyboardEvent) => {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 };
 
+/**
+ * How the focused control got focus. After a mouse click, Chrome leaves focus on the button,
+ * and Space would press it again. Space should play/pause then, like any video player. Only
+ * when you Tab to a control does Space/Enter press it.
+ */
+let focusByKeyboard = false;
+const CONTROL = 'button, a, [role="menuitem"], [role="menuitemradio"], [role="radio"], [role="slider"], [role="switch"], [role="checkbox"]';
+const spaceForPlayback = (e: KeyboardEvent) => {
+  const el = (e.target as HTMLElement)?.closest?.(CONTROL);
+  if (!el) return true;
+  if (focusByKeyboard) return false;
+  // Never steal Space from an open menu, popover or listbox.
+  return !el.closest('[role="menu"], [role="listbox"], .popover, .ctx-menu');
+};
+
 export function useReviewShortcuts() {
   useEffect(() => {
+    const onPointer = () => { focusByKeyboard = false; };
+    const onTab = (e: KeyboardEvent) => { if (e.key === 'Tab') focusByKeyboard = true; };
+    // Buttons fire their click on keyup for Space; cancel it when Space went to playback.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ' && !typing(e) && !useStore.getState().dialog && spaceForPlayback(e) && (e.target as HTMLElement)?.closest?.(CONTROL)) e.preventDefault();
+    };
     const onKey = (e: KeyboardEvent) => {
       const s = useStore.getState();
       if (s.dialog) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key === 'Enter') { e.preventDefault(); (window as any).__bottleSend?.(); return; }
       if (typing(e)) return;
-      // Space/Enter on a focused button activate that button; don't also toggle playback.
-      if ((e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement)?.closest?.('button, a, [role="menuitem"], [role="menuitemradio"]')) return;
+      // Space plays/pauses even after clicking a button; Tab-focused controls keep Space/Enter.
+      if (e.key === ' ' && !spaceForPlayback(e)) return;
+      if (e.key === 'Enter' && (e.target as HTMLElement)?.closest?.(CONTROL)) return;
       if (mod && e.key.toLowerCase() === 'z') {
         if (s.draft?.shapes.length) { e.preventDefault(); s.patchDraft({ shapes: s.draft.shapes.slice(0, -1) }); }
         return;
@@ -44,7 +66,7 @@ export function useReviewShortcuts() {
       const jumpTo = (c: { id: string; timestamp: number } | undefined) => { if (!c) return; player.pause(); player.seek(c.timestamp); s.set({ selectedId: c.id }); };
 
       switch (k) {
-        case ' ': e.preventDefault(); player.toggle(); break;
+        case ' ': e.preventDefault(); if (!e.repeat) player.toggle(); break;
         case 'k': case 'K': player.pause(); player.setRate(1); break;
         case 'j': case 'J': player.shuttle(-1); break;
         case 'l': case 'L': player.shuttle(1); break;
@@ -72,6 +94,14 @@ export function useReviewShortcuts() {
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onTab, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onTab, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
   }, []);
 }
