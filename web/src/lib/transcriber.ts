@@ -15,6 +15,7 @@ class WebSpeechTranscriber implements LiveTranscriber {
   private finalText = '';
   private running = false;
   private onUpdate: (f: string, i: string) => void = () => {};
+  failed: string | null = null;
   get available() { return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition); }
 
   start(onUpdate: (finalText: string, interim: string) => void) {
@@ -35,7 +36,13 @@ class WebSpeechTranscriber implements LiveTranscriber {
       }
       this.onUpdate(this.finalText, interim.trim());
     };
-    rec.onerror = () => {};
+    rec.onerror = (e: any) => {
+      // Don't spin on errors that won't fix themselves (no permission, no network/engine).
+      if (['not-allowed', 'service-not-allowed', 'network', 'language-not-supported', 'audio-capture'].includes(e?.error)) {
+        this.running = false;
+        this.failed = e.error;
+      }
+    };
     // Chrome ends recognition after silence; keep it going for the whole note.
     rec.onend = () => { if (this.running) { try { this.spawn(); } catch { /* */ } } };
     try { rec.start(); } catch { /* */ }

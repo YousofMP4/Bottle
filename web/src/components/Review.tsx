@@ -20,6 +20,10 @@ export function Review({ id }: { id: string }) {
   const [box, setBox] = useState({ w: 640, stage: 800 });
 
   useEffect(() => { loadDetail(id); }, [id]);
+  useEffect(() => {
+    document.body.dataset.panel = panelOpen ? 'open' : 'closed';
+    return () => { delete document.body.dataset.panel; };
+  }, [panelOpen]);
   useReviewShortcuts();
 
   const version = useMemo(() => detail?.versions.find((v) => v.id === versionId) ?? detail?.versions[detail.versions.length - 1], [detail, versionId]);

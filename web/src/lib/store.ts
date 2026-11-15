@@ -93,6 +93,17 @@ export const useStore = create<State>((set, get) => ({
         versionId = (wanted ?? d.versions[d.versions.length - 1])?.id ?? null;
       }
       set({ detail: d, versionId });
+      // A new cut arrived while you were watching (e.g. your agent called add_video).
+      const prev = cur.detail?.video.id === id ? cur.detail.versions.length : null;
+      if (prev !== null && d.versions.length > prev) {
+        const nv = d.versions[d.versions.length - 1];
+        get().toast({
+          text: `v${nv.number} just arrived — ${nv.filename}`,
+          tone: 'accent',
+          action: { label: `Open v${nv.number}`, run: () => get().set({ versionId: nv.id, selectedId: null, draft: null, tool: null }) },
+          ms: 8000,
+        });
+      }
     } catch (e: any) {
       if (e.status === 404) { get().go({ name: 'library' }); get().toast({ text: 'That video is no longer in Bottle.' }); }
     }

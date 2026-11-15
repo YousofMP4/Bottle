@@ -157,9 +157,15 @@ export async function addVideo(input: string, opts: { title?: string; videoId?: 
   }
   const title = (opts.title || '').trim() || baseTitle(path.basename(p));
   if (!target) {
-    const key = norm(title);
+    // Same title, or same file-name stem as an existing version ("teaser_v1.mp4" ↔ "teaser_v2.mp4").
+    const keys = new Set([norm(title), norm(path.basename(p))]);
     const vids = db.prepare('SELECT * FROM videos ORDER BY updated_at DESC').all() as Video[];
-    target = vids.find((v) => norm(v.title) === key) || null;
+    target = vids.find((v) => keys.has(norm(v.title))) || null;
+    if (!target) {
+      const hit = (db.prepare('SELECT video_id, filename FROM versions ORDER BY created_at DESC').all() as { video_id: string; filename: string }[])
+        .find((r) => keys.has(norm(r.filename)));
+      if (hit) target = getVideo(hit.video_id);
+    }
   }
 
   const info = await probe(p);

@@ -27,6 +27,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
   const [levels, setLevels] = useState<number[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [trFailed, setTrFailed] = useState(false);
   const shake = useAnimationControls();
   const nowRef = useRef<HTMLSpanElement>(null);
 
@@ -50,8 +51,9 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
     }
     rec.current = r;
     const lv: number[] = [];
-    r.onLevel = (l) => { lv.push(l); if (lv.length > 40) lv.shift(); setLevels([...lv]); setElapsed(r.elapsed()); };
+    r.onLevel = (l) => { if ((tr.current as any)?.failed) setTrFailed(true); lv.push(l); if (lv.length > 40) lv.shift(); setLevels([...lv]); setElapsed(r.elapsed()); };
     useStore.getState().patchDraft({ recording: true, audio: null, transcript: '', interim: '' });
+    setTrFailed(false);
     const t = createTranscriber(settings?.transcriber ?? 'browser');
     tr.current = t;
     t.start((finalText, interim) => useStore.getState().patchDraft({ transcript: finalText, interim }));
@@ -113,7 +115,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
           <motion.div className="transcript-line" initial={{ opacity: 0, y: 6, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: 4, height: 0 }} transition={spring.bar}>
             <span className="tl-label">{recording ? 'Listening' : 'Transcript'}</span>
             <span className={liveText ? '' : 'dim'}>
-              {liveText || (createTranscriber(settings?.transcriber ?? 'browser').available ? 'Start talking…' : settings?.transcriber === 'whisper' ? 'Will be transcribed locally with whisper.cpp' : 'Live transcription isn’t available in this browser')}
+              {liveText || (trFailed ? 'Live transcription isn’t available right now — your voice note is still recorded.' : createTranscriber(settings?.transcriber ?? 'browser').available ? 'Start talking…' : settings?.transcriber === 'whisper' ? 'Will be transcribed locally with whisper.cpp' : 'Live transcription isn’t available in this browser')}
               {draft?.interim && <span className="dim"> </span>}
             </span>
           </motion.div>
