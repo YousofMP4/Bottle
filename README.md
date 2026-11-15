@@ -39,17 +39,26 @@ Bottle keeps a reference to the file where it is (nothing is copied), so it's in
 
 ## Reviewing
 
-| Do this | How |
-|---|---|
-| Play / pause | <kbd>Space</kbd> (or <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> to shuttle). Clicking a video in your library starts it playing. |
-| Step one frame | <kbd>←</kbd> <kbd>→</kbd> |
-| Comment at this moment | <kbd>C</kbd>, or click just above the timeline |
-| Draw on the frame | <kbd>D</kbd>, then <kbd>1</kbd>–<kbd>4</kbd> for pen, arrow, box, circle |
-| Voice note | <kbd>R</kbd> to start, <kbd>R</kbd> to stop. A transcript is saved too, since agents can't hear audio |
-| Post the comment | <kbd>Enter</kbd> |
-| Send everything to your agent | **Send to agent** (<kbd>⌘</kbd><kbd>↩</kbd>) |
-| Add a video to your library | **Add video** (<kbd>⌘</kbd><kbd>O</kbd>) |
-| See every shortcut | <kbd>?</kbd>, or hover any button: its tooltip shows the shortcut |
+| Do this                       | How                                                                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Play / pause                  | <kbd>Space</kbd> (or <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> to shuttle). Clicking a video in your library starts it playing. |
+| Step one frame                | <kbd>←</kbd> <kbd>→</kbd>                                                                                                    |
+| Comment at this moment        | <kbd>C</kbd>, or click just above the timeline                                                                               |
+| Draw on the frame             | <kbd>D</kbd>, then <kbd>1</kbd>–<kbd>4</kbd> for pen, arrow, box, circle                                                     |
+| Voice note                    | <kbd>R</kbd> to start, <kbd>R</kbd> to stop. A transcript is saved too, since agents can't hear audio                        |
+| Post the comment              | <kbd>Enter</kbd>                                                                                                             |
+| Send everything to your agent | **Send to agent** (<kbd>⌘</kbd><kbd>↩</kbd>)                                                                                 |
+| Add a video to your library   | **Add video** (<kbd>⌘</kbd><kbd>O</kbd>)                                                                                     |
+| See every shortcut            | <kbd>?</kbd>, or hover any button: its tooltip shows the shortcut                                                            |
+
+## Your library
+
+- **Folders:** make folders (one level of nesting), drag videos onto a folder, a breadcrumb, or a sidebar folder,
+  and drag cards to set your own order. Right-click anything for Rename, Move to…, Show in Finder and Copy path.
+- **Select several:** <kbd>⌘</kbd>-click or <kbd>⇧</kbd>-click, <kbd>⌘</kbd><kbd>A</kbd> for all, <kbd>⌫</kbd> to remove.
+- **Search and sort:** <kbd>/</kbd> searches every folder. Sort by recent, your order, name, length or notes; grid or list.
+- **Remove from library never deletes your file.** It only forgets Bottle's reference and the comments on it,
+  asks first, and can be undone for 8 seconds.
 
 - **Versions:** when your agent saves a new cut (for example `promo_v2.mp4`), Bottle adds it as **v2** of the same
   video. Switch versions from the `v2` chip next to the play button. Each version keeps its own comments.
@@ -79,8 +88,8 @@ When you send a round, your agent can hear about it in up to four ways, set in *
 
 | Tool | What it does |
 |---|---|
-| `add_video(path, title?)` | Add a video to your library by its path (referenced in place, never copied). A matching name or path becomes the next version. |
-| `list_videos()` | Every video, with its latest version, file path and number of open revisions. |
+| `add_video(path, title?, folder?)` | Add a video to your library by its path (referenced in place, never copied), optionally into a folder by name. A matching name or path becomes the next version. |
+| `list_videos()` | Every video, with its folder, latest version, file path and number of open revisions. |
 | `get_revisions(video_id, status="open")` | Structured JSON: timestamp, timecode, frame, text, voice transcript, a plain-words description of any drawing, author, status, replies. |
 | `get_frame(video_id, timestamp)` | The frame as an image **with your drawing burned in**, so the agent sees exactly what you circled. Pass `revision_id` to get that note's own frame. |
 | `reply_to_revision(id, text)` | Reply in the thread. It shows up live in your browser. |

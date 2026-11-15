@@ -130,3 +130,12 @@ the composer expands into a card with the pencil, `+` and send.
 - Our own pen-nib SVG cursor tinted with the active ink color, hotspot at the nib, crosshair fallback.
 - Same global-drag-cursor trick, `grab` on the track, `grabbing` everywhere during a scrub.
 - Mechanical press: 80ms sink of 1–2px with a tightened shadow; optional WebAudio click (Settings, off by default).
+
+### Where Bottle deliberately differs (round 2)
+- **Scrub-to-play:** releasing a click or drag on the timeline plays (Flask stays paused). Arrow-key frame stepping
+  never plays.
+- **Library cards keep a pointer cursor**, because a click plays the video; the `move` cursor takes over the whole
+  page the moment a drag starts (5px threshold), with a ghost and drop highlights.
+- **Timeline cursor is `grab`/`grabbing`** (Flask keeps the arrow) so the knob reads as something you can hold.
+- **Speed is a −/+ stepper** around the readout (Flask's −/+ zoom the timeline); the readout still opens presets.
+- **Light comes from the top-left** on Bottle's metal (shadows fall down-right); Flask's falls down-left.
