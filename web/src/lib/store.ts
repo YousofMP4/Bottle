@@ -47,6 +47,7 @@ interface State {
   /** Set right before routing into a video from a click, so the player starts on its own. */
   autoplay: boolean;
   muted: boolean;
+  volume: number;
   /** Where the floating comment box sits after a drawing stroke (viewport px), or null. */
   float: { x: number; y: number; drawing: boolean } | null;
   rate: number;
@@ -88,6 +89,7 @@ export const useStore = create<State>((set, get) => ({
   playing: false,
   autoplay: false,
   muted: false,
+  volume: (() => { try { const v = Number(localStorage.getItem('bottle.volume')); return v >= 0 && v <= 1 && localStorage.getItem('bottle.volume') !== null ? v : 1; } catch { return 1; } })(),
   float: null,
   rate: 1,
 

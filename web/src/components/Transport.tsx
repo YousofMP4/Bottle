@@ -6,78 +6,168 @@ import { mediaUrl } from '../lib/api';
 import { player, timeBus } from '../lib/bus';
 import { tc, ago, clamp } from '../lib/time';
 import { spring } from '../lib/motion';
-import { IChevronLeft, IChevronRight, IExpand, IMute, IPause, IPlay, IPlus, IVolume } from './Icons';
+import { IChevronLeft, IChevronRight, IExpand, IPause, IPlay, IPlus } from './Icons';
 import { Popover } from './Popover';
 import { tip } from './Tooltip';
+
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export function Transport({ version, versions, comments, onComposeAt }: { version: Version; versions: Version[]; comments: Comment[]; onComposeAt: (t: number) => void }) {
   const playing = useStore((s) => s.playing);
   const rate = useStore((s) => s.rate);
-  const muted = useStore((s) => s.muted);
+  const step = (dir: 1 | -1) => {
+    const cur = Math.abs(rate) || 1;
+    const i = SPEEDS.findIndex((x) => x >= cur - 0.001);
+    const next = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 3 : i) + dir))];
+    player.stopReverse(); player.setRate(next);
+  };
 
   return (
-    <div className="transport">
-      <button className="round-btn play" onClick={() => player.toggle()} {...tip(playing ? 'Pause' : 'Play', 'Space')}>
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span key={playing ? 'pause' : 'play'} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} transition={spring.pop} className="center">
-            {playing ? <IPause size={16} /> : <IPlay size={16} />}
-          </motion.span>
-        </AnimatePresence>
-      </button>
-
-      <VersionChip version={version} versions={versions} />
-      <TimeReadout duration={version.duration} />
-      <Timeline version={version} comments={comments} onComposeAt={onComposeAt} />
-
-      <div className="transport-right">
-        <div className="joined">
-          <button className="round-btn" onClick={() => player.step(-1)} {...tip('Previous frame', '←')}><IChevronLeft size={16} /></button>
-          <button className="round-btn" onClick={() => player.step(1)} {...tip('Next frame', '→')}><IChevronRight size={16} /></button>
-        </div>
-        <Popover
-          trigger={(open) => <button className={`pill-btn mono ${open ? 'on' : ''} ${rate < 0 ? 'rev' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(`Playback speed · ${rate < 0 ? `reverse ${-rate}x` : `${rate}x`}`, ['J', 'K', 'L'], { aria: true })}>{rate < 0 ? `◂${-rate}x` : `${rate}x`}</button>}
-          align="end"
-        >
-          {(close) => (
-            <div className="menu">
-              {[0.25, 0.5, 1, 1.5, 2].map((r) => (
-                <button key={r} role="menuitemradio" aria-checked={Math.abs(rate) === r} className={`menu-item ${Math.abs(rate) === r ? 'on' : ''}`} onClick={() => { player.stopReverse(); player.setRate(r); close(); }}>
-                  <span className="mono">{r}x</span>{r === 1 && <span className="dim">Normal</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </Popover>
-        <button className={`round-btn ${muted ? 'on' : ''}`} onClick={() => { if (player.el) player.el.muted = !player.el.muted; else useStore.setState({ muted: !muted }); }} aria-pressed={muted} {...tip(muted ? 'Unmute' : 'Mute', 'M')}>
-          {muted ? <IMute size={16} /> : <IVolume size={16} />}
+    <div className="transport-wrap">
+      <div className="transport-top">
+        <VersionChip version={version} versions={versions} wide />
+      </div>
+      <div className="transport">
+        <button className="round-btn play" onClick={() => player.toggle()} {...tip(playing ? 'Pause' : 'Play', 'Space')}>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span key={playing ? 'pause' : 'play'} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} transition={spring.pop} className="center">
+              {playing ? <IPause size={15} /> : <IPlay size={15} />}
+            </motion.span>
+          </AnimatePresence>
         </button>
-        <button className="round-btn" onClick={() => toggleFullscreen()} {...tip('Fullscreen', 'F')}><IExpand size={15} /></button>
+
+        <VersionChip version={version} versions={versions} />
+        <TimeReadout duration={version.duration} playing={playing} />
+        <Timeline version={version} comments={comments} onComposeAt={onComposeAt} />
+
+        <div className="transport-right">
+          <div className="stepper" role="group" aria-label="Playback speed">
+            <button className="step-btn" onClick={() => step(-1)} aria-disabled={Math.abs(rate) <= SPEEDS[0]} {...tip('Slower', 'J')}><IMinus size={14} /></button>
+            <Popover
+              trigger={(open) => <button className={`step-read mono ${open ? 'on' : ''} ${rate < 0 ? 'rev' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(`Speed ${rate < 0 ? `reverse ${-rate}` : rate}x · click for presets`, undefined, { aria: true })}>{rate < 0 ? `◂${-rate}` : rate}<span className="step-x">x</span></button>}
+              align="end"
+            >
+              {(close) => (
+                <div className="menu">
+                  {SPEEDS.map((r) => (
+                    <button key={r} role="menuitemradio" aria-checked={Math.abs(rate) === r} className={`menu-item ${Math.abs(rate) === r ? 'on' : ''}`} onClick={() => { player.stopReverse(); player.setRate(r); close(); }}>
+                      <span className={`radio-mini ${Math.abs(rate) === r ? 'on' : ''}`} /><span className="mono">{r}x</span>{r === 1 && <span className="dim">Normal</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Popover>
+            <button className="step-btn" onClick={() => step(1)} aria-disabled={Math.abs(rate) >= SPEEDS[SPEEDS.length - 1]} {...tip('Faster', 'L')}><IPlus size={14} /></button>
+          </div>
+          <VolumeKnob />
+          <button className="round-btn" onClick={() => toggleFullscreen()} {...tip('Fullscreen', 'F')}><IExpand size={15} /></button>
+          <Popover align="end" trigger={(open) => <button className={`round-btn ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip('View options')}><ISliders size={15} /></button>}>
+            {(close) => (
+              <div className="menu">
+                <button className="menu-item" onClick={() => { player.step(-1); }}><IChevronLeft size={14} /> <span className="menu-label-text">Previous frame</span><span className="menu-kbd">←</span></button>
+                <button className="menu-item" onClick={() => { player.step(1); }}><IChevronRight size={14} /> <span className="menu-label-text">Next frame</span><span className="menu-kbd">→</span></button>
+                <div className="menu-sep" />
+                <button className="menu-item" onClick={() => { close(); useStore.getState().set({ panelOpen: !useStore.getState().panelOpen }); }}><span className="menu-label-text">Comments panel</span><span className="menu-kbd">{'\\'}</span></button>
+                <button className="menu-item" onClick={() => { close(); useStore.getState().set({ dialog: 'shortcuts' }); }}><span className="menu-label-text">Keyboard shortcuts</span><span className="menu-kbd">?</span></button>
+                <button className="menu-item" onClick={() => { close(); useStore.getState().set({ dialog: 'settings' }); }}><span className="menu-label-text">Settings…</span><span className="menu-kbd">⌘,</span></button>
+              </div>
+            )}
+          </Popover>
+        </div>
       </div>
     </div>
   );
 }
+
+/**
+ * Rotary volume knob: drag up/down (or scroll) to turn, click to mute, double-click for 100%.
+ * Arrow keys work when focused. The lit arc shows the level like a hardware pot.
+ */
+function VolumeKnob() {
+  const volume = useStore((s) => s.volume);
+  const muted = useStore((s) => s.muted);
+  const drag = useRef<{ y: number; v: number; moved: boolean } | null>(null);
+  const set = (v: number) => {
+    const nv = Math.round(clamp(v, 0, 1) * 100) / 100;
+    useStore.setState({ volume: nv });
+    if (player.el) { player.el.volume = nv; if (nv > 0 && player.el.muted) player.el.muted = false; }
+  };
+  const toggleMute = () => { if (player.el) player.el.muted = !player.el.muted; else useStore.setState({ muted: !muted }); };
+  const shown = muted ? 0 : volume;
+  const angle = -135 + shown * 270;
+  // arc from -135deg to the current angle (r=15 on a 36 box)
+  const arc = (a: number) => { const r = (a - 90) * Math.PI / 180; return [18 + 15 * Math.cos(r), 18 + 15 * Math.sin(r)]; };
+  const [x0, y0] = arc(-135), [x1, y1] = arc(angle);
+  const large = angle - -135 > 180 ? 1 : 0;
+  return (
+    <div
+      className={`vol-knob ${muted ? 'muted' : ''}`}
+      role="slider"
+      tabIndex={0}
+      aria-label="Volume"
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(shown * 100)}
+      aria-valuetext={muted ? 'Muted' : `${Math.round(volume * 100)}%`}
+      {...tip(muted ? 'Muted · click to unmute' : `Volume ${Math.round(volume * 100)}% · drag or scroll`, 'M', { aria: false })}
+      onPointerDown={(e) => {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        drag.current = { y: e.clientY, v: volume, moved: false };
+        document.documentElement.dataset.dragCursor = 'grabbing';
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current; if (!d) return;
+        const dy = d.y - e.clientY;
+        if (Math.abs(dy) > 2) d.moved = true;
+        if (d.moved) set(d.v + dy / 140);
+      }}
+      onPointerUp={() => {
+        const d = drag.current; drag.current = null;
+        delete document.documentElement.dataset.dragCursor;
+        if (d && !d.moved) toggleMute();
+      }}
+      onDoubleClick={() => set(1)}
+      onWheel={(e) => { set(volume - e.deltaY / 600); }}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); set(volume + 0.05); }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); set(volume - 0.05); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleMute(); }
+      }}
+    >
+      <svg className="vol-arc" viewBox="0 0 36 36" aria-hidden>
+        <path d={`M ${x0} ${y0} A 15 15 0 1 1 ${arc(135)[0]} ${arc(135)[1]}`} className="vol-track" />
+        {shown > 0.005 && <path d={`M ${x0} ${y0} A 15 15 0 ${large} 1 ${x1} ${y1}`} className="vol-fill" />}
+      </svg>
+      <span className="vol-cap" style={{ rotate: `${angle}deg` }}><i className="vol-notch" /></span>
+    </div>
+  );
+}
+
+const IMinus = ({ size = 14 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M5 12h14" /></svg>;
+const ISliders = ({ size = 15 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>;
 
 export function toggleFullscreen() {
   const el = document.querySelector('.review') as HTMLElement | null;
   if (document.fullscreenElement) document.exitFullscreen(); else el?.requestFullscreen?.();
 }
 
-function TimeReadout({ duration }: { duration: number }) {
+function TimeReadout({ duration, playing }: { duration: number; playing: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => timeBus.on((t) => { if (ref.current) ref.current.textContent = tc(t); }), []);
   return (
     <div className="time mono" aria-label="Current time and duration">
-      <span ref={ref} className="time-now">0:00</span><span className="time-sep">/</span><span className="dim">{tc(duration)}</span>
+      <i className={`led ${playing ? 'on' : ''}`} {...tip(playing ? 'Playing' : 'Paused', undefined, { aria: false })} />
+      <span ref={ref} className="time-now">0:00</span><span className="time-sep">/</span><span className="time-dur">{tc(duration)}</span>
     </div>
   );
 }
 
-function VersionChip({ version, versions }: { version: Version; versions: Version[] }) {
+function VersionChip({ version, versions, wide }: { version: Version; versions: Version[]; wide?: boolean }) {
   const set = useStore((s) => s.set);
   const comments = useStore((s) => s.detail?.comments ?? []);
   return (
     <Popover trigger={(open) => (
-      <button className={`pill-btn mono ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(versions.length > 1 ? `Version ${version.number} of ${versions.length} · switch version` : 'Versions', undefined, { aria: true })}>v{version.number}</button>
+      wide
+        ? <button className={`pill-btn versions-btn ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(`${versions.length} version${versions.length === 1 ? '' : 's'}`, undefined, { aria: false })}>Versions{versions.length > 1 && <span className="versions-count mono">{versions.length}</span>}</button>
+        : <button className={`ver-chip mono ${open ? 'on' : ''}`} aria-haspopup="menu" aria-expanded={open} {...tip(versions.length > 1 ? `Version ${version.number} of ${versions.length} · switch` : 'Versions', undefined, { aria: true })}>v{version.number}</button>
     )}>
       {(close) => (
         <div className="menu versions-menu">

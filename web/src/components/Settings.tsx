@@ -107,6 +107,11 @@ export function SettingsDialog() {
         </section>
 
         <section>
+          <h3>Feel</h3>
+          <Toggle label="Click sounds" hint="A soft mechanical click when you press buttons, like real hardware." checked={settings.click_sound} onChange={(v) => { save({ click_sound: v }); if (v) import('../lib/sfx').then((m) => m.click()); }} />
+        </section>
+
+        <section>
           <h3>You</h3>
           <div className="row gap">
             <label className="dim small" htmlFor="name">Name on your comments</label>

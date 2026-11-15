@@ -11,6 +11,19 @@ import { spring, ease } from '../lib/motion';
 import { IPause, IPlay, IMute } from './Icons';
 import { tip } from './Tooltip';
 
+/** Bottle's pen cursor: a small nib tinted with the active ink, hotspot at the tip (bottom-left). */
+function penCursor(color: string) {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+    <filter id='s' x='-20%' y='-20%' width='140%' height='140%'><feDropShadow dx='1' dy='1.5' stdDeviation='1' flood-opacity='.55'/></filter>
+    <g filter='url(#s)' transform='rotate(45 14 14)'>
+      <rect x='11' y='1.5' width='6' height='15' rx='1.6' fill='#e9e9e6' stroke='#111' stroke-width='.8'/>
+      <rect x='11' y='1.5' width='6' height='3.2' rx='1.4' fill='${color}' stroke='#111' stroke-width='.8'/>
+      <path d='M11 16.5h6l-3 7.2z' fill='#cfcfcb' stroke='#111' stroke-width='.8' stroke-linejoin='round'/>
+      <path d='M13.1 21.4h1.8l-.9 2.2z' fill='${color}'/>
+    </g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 5 23, crosshair`;
+}
+
 const SHOW_FOR = 1.5; // seconds a drawing stays up during playback
 const FADE_OUT = 0.3;
 
@@ -31,6 +44,12 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
   const [buffering, setBuffering] = useState(false);
   const forcedMute = useRef(false);
   const [flash, setFlash] = useState<{ n: number; playing: boolean } | null>(null);
+  // Like a player app: while playing, the cursor hides after a moment of stillness over the video.
+  const [idle, setIdle] = useState(false);
+  const idleT = useRef(0);
+  const playing = useStore((s) => s.playing);
+  const wake = () => { setIdle(false); clearTimeout(idleT.current); idleT.current = window.setTimeout(() => setIdle(true), 1800); };
+  useEffect(() => { if (!playing) { setIdle(false); clearTimeout(idleT.current); } else wake(); return () => clearTimeout(idleT.current); }, [playing]);
 
   const aspect = version.width && version.height ? version.width / version.height : 16 / 9;
 
@@ -70,8 +89,9 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     let bufT = 0;
     const onWaiting = () => { clearTimeout(bufT); bufT = window.setTimeout(() => setBuffering(true), 180); };
     const onReady = () => { clearTimeout(bufT); setBuffering(false); };
-    const onVol = () => { useStore.setState({ muted: v.muted }); if (!v.muted) { forcedMute.current = false; setAutoplayLimit((l) => (l === 'muted' ? null : l)); } };
+    const onVol = () => { useStore.setState({ muted: v.muted, volume: v.volume }); try { localStorage.setItem('bottle.volume', String(v.volume)); } catch { /* */ } if (!v.muted) { forcedMute.current = false; setAutoplayLimit((l) => (l === 'muted' ? null : l)); } };
     v.muted = useStore.getState().muted;
+    v.volume = useStore.getState().volume;
     // A fresh <video> starts paused; the old element never fired 'pause' when it was replaced.
     useStore.setState({ playing: false, rate: 1 });
     v.addEventListener('play', onPlay); v.addEventListener('pause', onPause); v.addEventListener('ratechange', onRate); v.addEventListener('error', onErr);
@@ -194,7 +214,7 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
 
   return (
     <div className="stage" ref={wrapRef}>
-      <div className={`video-box ${tool ? 'drawing' : ''}`} style={{ width: box.w, height: box.h }}>
+      <div className={`video-box ${tool ? 'drawing' : ''} ${idle && playing && !tool ? 'cursor-idle' : ''}`} style={{ width: box.w, height: box.h }} onPointerMove={wake}>
         <video
           ref={videoRef}
           key={version.id}
@@ -213,7 +233,7 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
         <canvas
           ref={canvasRef}
           className="overlay"
-          style={{ pointerEvents: tool ? 'auto' : 'none', cursor: tool ? 'crosshair' : 'default' }}
+          style={{ pointerEvents: tool ? 'auto' : 'none', cursor: tool === 'pen' ? penCursor(color) : tool ? 'crosshair' : 'default' }}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}

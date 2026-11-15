@@ -13,6 +13,7 @@ import { TooltipLayer } from './components/Tooltip';
 import { ContextMenuLayer } from './components/ContextMenu';
 import { RemoveDialog } from './components/RemoveDialog';
 import { view } from './lib/motion';
+import { click, CLICKY, SOFT } from './lib/sfx';
 
 export function App() {
   const route = useStore((s) => s.route);
@@ -59,7 +60,15 @@ export function App() {
       el.style.setProperty('--my', `${e.clientY - r.top}px`);
     };
     window.addEventListener('pointermove', onMove, { passive: true });
-    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); window.removeEventListener('pointermove', onMove); es?.close(); };
+    // Optional mechanical click on press (Settings → Feel). Fires on pointerdown, like a real switch.
+    const onPress = (e: PointerEvent) => {
+      if (e.button !== 0 || !useStore.getState().settings?.click_sound) return;
+      const el = (e.target as HTMLElement)?.closest?.(CLICKY) as HTMLElement | null;
+      if (!el || el.matches(':disabled, [aria-disabled="true"]')) return;
+      click(el.matches(SOFT));
+    };
+    window.addEventListener('pointerdown', onPress, true);
+    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerdown', onPress, true); es?.close(); };
   }, []);
 
   return (

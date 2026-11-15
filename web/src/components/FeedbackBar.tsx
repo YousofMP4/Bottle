@@ -9,8 +9,9 @@ import { VoiceRecorder } from '../lib/recorder';
 import { createTranscriber, type LiveTranscriber } from '../lib/transcriber';
 import { tc } from '../lib/time';
 import { spring } from '../lib/motion';
-import { DotWave, IArrowUp, IPause, IPen, IPlay, IStop, IX } from './Icons';
+import { DotWave, IArrowUp, IChevronDown, IPause, IPen, IPlay, IStop, IX } from './Icons';
 import { tip } from './Tooltip';
+import { showMenu } from './ContextMenu';
 
 /** Imperative handle so keyboard shortcuts and the timeline can drive the composer. */
 export const composer = {
@@ -154,7 +155,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
               </motion.span>
             ) : recording ? (
               <motion.span key="rec" className="fb-voice-label rec mono" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring.pop}>
-                {tc(elapsed)} <IStop size={14} />
+                <i className="led red blink" /> {tc(elapsed)} <IStop size={14} />
               </motion.span>
             ) : (
               <motion.span key="idle" className="fb-voice-label" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring.pop}>
@@ -163,6 +164,23 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
             )}
           </AnimatePresence>
         </motion.button>
+        <button
+          className="fb-mode"
+          aria-haspopup="menu"
+          {...tip('Feedback options')}
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const tr = settings?.transcriber ?? 'browser';
+            const setTr = async (t: 'browser' | 'whisper' | 'off') => { const s = await api.saveSettings({ transcriber: t }); useStore.getState().set({ settings: s }); };
+            showMenu({ clientX: r.left - 4, clientY: r.top - 8 - 6 * 34 }, [
+              { label: recording ? 'Stop voice note' : 'Voice note', kbd: 'R', icon: <span className={`led ${recording ? 'red blink' : ''}`} />, run: toggleRecord },
+              { label: 'Draw on the frame', kbd: 'D', icon: <IPen size={13} />, run: () => { anchor(); useStore.getState().set({ tool: 'pen' }); } },
+              { label: 'Type a note', kbd: 'C', run: () => composer.focus() },
+              'sep',
+              { label: 'Transcribe voice notes', submenu: ([['browser', 'Live, in the browser'], ['whisper', 'whisper.cpp, on this Mac'], ['off', 'Off (audio only)']] as const).map(([id, label]) => ({ label, icon: <span className={`radio-mini ${tr === id ? 'on' : ''}`} />, run: () => setTr(id) })) },
+            ]);
+          }}
+        ><IChevronDown size={14} /></button>
 
         <div className="fb-input">
           <button className={`time-chip mono ${hasDraft ? 'pinned' : ''}`} onClick={() => { if (draft) player.seek(draft.t); else anchor(); }} {...tip(hasDraft ? 'Pinned here · click to jump back' : 'Comment at this frame', hasDraft ? undefined : 'C')}>
