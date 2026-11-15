@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Folder, VideoSummary } from '../../../server/types';
 import { useStore, addVideo, playVideo, askRemove } from '../lib/store';
-import { api, posterUrl } from '../lib/api';
+import { api, posterUrl, mediaUrl } from '../lib/api';
 import { tc, ago } from '../lib/time';
 import { BottleMark, IChevronRight, IFilm, IFolder, IGrid, IList, IPlay, IPlus, ISearch, ITrash, ICopy, IX } from './Icons';
 import { ease, spring } from '../lib/motion';
@@ -374,6 +374,7 @@ export function Library() {
                       <div className="card-media">
                         {v.latest && <img src={posterUrl(v.latest.id)} alt="" loading="lazy" draggable={false} onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                         <div className="card-fallback"><IFilm size={26} /></div>
+                        {v.latest && !drag && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} />}
                         <div className="card-play"><IPlay size={18} /></div>
                         <span className="card-badge mono">v{v.latest?.number ?? 1}</span>
                         {v.latest && <span className="card-dur">{tc(v.latest.duration)}</span>}
@@ -400,7 +401,7 @@ export function Library() {
                       transition={spring.soft}
                       {...(common as any)}
                     >
-                      <span className="row-thumb">{v.latest && <img src={posterUrl(v.latest.id)} alt="" draggable={false} />}<span className="card-badge mono">v{v.latest?.number ?? 1}</span></span>
+                      <span className="row-thumb">{v.latest && <img src={posterUrl(v.latest.id)} alt="" draggable={false} />}{v.latest && !drag && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} compact />}<span className="card-badge mono">v{v.latest?.number ?? 1}</span></span>
                       <span className="row-name">{title}{folderName && <span className="dim small"> · {folderName}</span>}</span>
                       <span className="row-notes">{notes}</span>
                       <span className="mono dim">{v.latest ? tc(v.latest.duration) : '–'}</span>
@@ -429,6 +430,54 @@ export function Library() {
     </div>
   );
 }
+
+/**
+ * Hover-scrub: move the cursor left/right across a thumbnail to preview that moment.
+ * A muted <video> is created on first hover only, and seeks are kept to one in flight
+ * (always jumping to the latest cursor position) so it keeps up with fast movement.
+ */
+function HoverScrub({ versionId, duration, compact }: { versionId: string; duration: number; compact?: boolean }) {
+  const [frac, setFrac] = useState<number | null>(null);
+  const [shown, setShown] = useState(false);
+  const vid = useRef<HTMLVideoElement>(null);
+  const want = useRef(-1);
+  const pump = () => {
+    const v = vid.current;
+    if (!v || v.seeking || want.current < 0 || v.readyState < 1) return;
+    const w = want.current; want.current = -1;
+    if (Math.abs(v.currentTime - w) > 0.01) v.currentTime = w; else setShown(true);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (e.buttons) return; // a drag is starting: leave it alone
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const f = clamp01((e.clientX - r.left) / r.width);
+    setFrac(f);
+    want.current = Math.min(Math.max(0, duration - 0.05), f * duration);
+    pump();
+  };
+  return (
+    <div className={`scrub ${frac !== null ? 'on' : ''} ${compact ? 'compact' : ''}`} onPointerMove={onMove} onPointerLeave={() => { setFrac(null); setShown(false); want.current = -1; }} aria-hidden>
+      {frac !== null && (
+        <>
+          <video
+            ref={vid}
+            className="scrub-video"
+            src={mediaUrl(versionId)}
+            muted
+            playsInline
+            preload="auto"
+            style={{ opacity: shown ? 1 : 0 }}
+            onLoadedMetadata={pump}
+            onSeeked={() => { setShown(true); pump(); }}
+          />
+          <span className="scrub-bar"><i style={{ transform: `scaleX(${frac})` }} /></span>
+          {!compact && <span className="scrub-time mono">{tc(frac * duration)}</span>}
+        </>
+      )}
+    </div>
+  );
+}
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 function DragGhost({ drag, folders, videos }: { drag: Drag; folders: Folder[]; videos: VideoSummary[] }) {
   const label = drag.kind === 'folder'
