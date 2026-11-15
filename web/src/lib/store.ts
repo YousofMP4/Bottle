@@ -1,11 +1,14 @@
 import { create } from 'zustand';
-import type { Comment, Settings, Shape, Tool, VideoDetail, VideoSummary } from '../../../server/types';
+import type { Comment, Folder, Settings, Shape, Tool, VideoDetail, VideoSummary } from '../../../server/types';
 import { api } from './api';
 import type { Recording } from './recorder';
 
 export interface Toast { id: number; text: string; sub?: string; tone?: 'default' | 'accent' | 'error'; action?: { label: string; run: () => void }; ms?: number }
 
-export type Route = { name: 'library' } | { name: 'review'; id: string; v?: number };
+export type Route = { name: 'library'; folder?: string } | { name: 'review'; id: string; v?: number };
+
+/** A pending "Remove from library" confirmation. */
+export interface RemoveAsk { ids: string[]; after?: () => void }
 
 export interface Draft {
   t: number;
@@ -22,12 +25,14 @@ const emptyDraft = (t = 0): Draft => ({ t, text: '', shapes: [], transcript: '',
 interface State {
   route: Route;
   videos: VideoSummary[];
+  folders: Folder[];
+  removeAsk: RemoveAsk | null;
   videosLoaded: boolean;
   detail: VideoDetail | null;
   settings: Settings | null;
   platform: { id: string; canPick: boolean } | null;
   toasts: Toast[];
-  dialog: null | 'settings' | 'shortcuts' | 'paste';
+  dialog: null | 'settings' | 'shortcuts' | 'paste' | 'remove';
   pasteFor: string | undefined;
 
   // review
@@ -63,6 +68,8 @@ let toastId = 1;
 export const useStore = create<State>((set, get) => ({
   route: parseHash(),
   videos: [],
+  folders: [],
+  removeAsk: null,
   videosLoaded: false,
   detail: null,
   settings: null,
@@ -85,12 +92,15 @@ export const useStore = create<State>((set, get) => ({
   rate: 1,
 
   go(r) {
-    const hash = r.name === 'library' ? '#/' : `#/v/${r.id}${r.v ? `/${r.v}` : ''}`;
+    const hash = r.name === 'library' ? (r.folder ? `#/f/${r.folder}` : '#/') : `#/v/${r.id}${r.v ? `/${r.v}` : ''}`;
     if (location.hash !== hash) history.pushState(null, '', hash);
     set({ route: r });
   },
   async loadVideos() {
-    try { set({ videos: await api.videos(), videosLoaded: true }); } catch { set({ videosLoaded: true }); }
+    try {
+      const [videos, folders] = await Promise.all([api.videos(), api.folders()]);
+      set({ videos, folders, videosLoaded: true });
+    } catch { set({ videosLoaded: true }); }
   },
   async loadDetail(id) {
     try {
@@ -138,14 +148,18 @@ export const useStore = create<State>((set, get) => ({
 
 export function parseHash(): Route {
   const m = /^#\/v\/([a-z0-9_]+)(?:\/(\d+))?/i.exec(location.hash);
-  return m ? { name: 'review', id: m[1], v: m[2] ? Number(m[2]) : undefined } : { name: 'library' };
+  if (m) return { name: 'review', id: m[1], v: m[2] ? Number(m[2]) : undefined };
+  const f = /^#\/f\/([a-z0-9_]+)/i.exec(location.hash);
+  return f ? { name: 'library', folder: f[1] } : { name: 'library' };
 }
 
 /** Open the native file picker (or the paste dialog), add the file to the library and route into it. */
 export async function addVideo(videoId?: string) {
   const s = useStore.getState();
+  // Adding from inside a folder files the video there.
+  const folderId = s.route.name === 'library' ? s.route.folder ?? null : null;
   try {
-    const r = await api.pick(videoId);
+    const r = await api.pick(videoId, folderId);
     if (r.cancelled) return;
     afterAdd(r);
   } catch (e: any) {
@@ -171,4 +185,28 @@ export function playVideo(id: string) {
   s.set({ versionId: null, draft: null, tool: null, selectedId: null, autoplay: true });
   s.go({ name: 'review', id });
   s.loadDetail(id); // start fetching now, not after the view transition
+}
+
+/** Ask before removing videos from the library (the confirm dialog explains files stay on disk). */
+export function askRemove(ids: string[], after?: () => void) {
+  if (!ids.length) return;
+  useStore.getState().set({ removeAsk: { ids, after }, dialog: 'remove' });
+}
+
+/** Actually remove (soft, undoable for 8s). Never touches files on disk. */
+export async function removeFromLibrary(ids: string[]) {
+  const s = useStore.getState();
+  const gone = new Set(ids);
+  const prev = s.videos;
+  s.set({ videos: prev.filter((v) => !gone.has(v.id)) }); // optimistic: feels instant
+  try { await api.removeVideos(ids); }
+  catch (e: any) { s.set({ videos: prev }); s.toast({ text: 'Couldn’t remove that', sub: e.message, tone: 'error' }); return; }
+  if (s.route.name === 'review' && gone.has(s.route.id)) s.go({ name: 'library' });
+  s.toast({
+    text: ids.length === 1 ? 'Removed from your library' : `Removed ${ids.length} videos from your library`,
+    sub: 'The files on your disk are untouched.',
+    ms: 8000,
+    action: { label: 'Undo', run: async () => { await api.restoreVideos(ids); useStore.getState().loadVideos(); } },
+  });
+  s.loadVideos();
 }

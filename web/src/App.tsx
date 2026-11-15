@@ -10,6 +10,8 @@ import { SettingsDialog } from './components/Settings';
 import { ShortcutsDialog } from './components/Shortcuts';
 import { PasteDialog } from './components/PasteDialog';
 import { TooltipLayer } from './components/Tooltip';
+import { ContextMenuLayer } from './components/ContextMenu';
+import { RemoveDialog } from './components/RemoveDialog';
 import { view } from './lib/motion';
 
 export function App() {
@@ -67,7 +69,7 @@ export function App() {
         <main className="main">
           <AnimatePresence mode="wait" initial={false}>
             {route.name === 'library' ? (
-              <motion.div key="library" className="view" {...view}><Library /></motion.div>
+              <motion.div key={`library-${route.folder ?? ''}`} className="view" {...view}><Library /></motion.div>
             ) : (
               <motion.div key={`review-${route.id}`} className="view" {...view}><Review id={route.id} /></motion.div>
             )}
@@ -77,7 +79,9 @@ export function App() {
         <SettingsDialog />
         <ShortcutsDialog />
         <PasteDialog />
+        <RemoveDialog />
         <TooltipLayer />
+        <ContextMenuLayer />
       </div>
     </MotionConfig>
   );

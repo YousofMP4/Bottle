@@ -37,9 +37,10 @@ server.registerTool('add_video', {
     path: z.string().describe('Absolute path to the video file, e.g. /Users/me/Movies/promo_v2.mp4'),
     title: z.string().optional().describe('Human-friendly title. Defaults to the file name.'),
     video_id: z.string().optional().describe('Make this a new version of this existing video.'),
+    folder: z.string().optional().describe('Optional library folder (name or id) to file it in. Created at the top level if no folder has that name.'),
   },
-}, wrap(async ({ path, title, video_id }) => {
-  const r = await core.addVideo(path, { title, videoId: video_id });
+}, wrap(async ({ path, title, video_id, folder }) => {
+  const r = await core.addVideo(path, { title, videoId: video_id, folder: folder ?? null });
   return json({
     outcome: r.outcome,
     video_id: r.video.id,
@@ -49,17 +50,19 @@ server.registerTool('add_video', {
     duration: r.version.duration,
     resolution: `${r.version.width}x${r.version.height}`,
     fps: r.version.fps,
+    folder: r.video.folder_id ? core.getFolder(r.video.folder_id).name : null,
     review_url: `http://127.0.0.1:${process.env.BOTTLE_PORT || 4317}/#/v/${r.video.id}`,
   });
 }));
 
 server.registerTool('list_videos', {
   title: 'List videos',
-  description: 'List all videos in Bottle with their latest version, file path and counts of open revisions.',
+  description: 'List all videos in Bottle with their library folder, latest version, file path and counts of open revisions.',
   inputSchema: {},
-}, wrap(async () => json(core.listVideos().map((v) => ({
+}, wrap(async () => { const folders = new Map(core.listFolders().map((f) => [f.id, f])); const pathOf = (id?: string | null) => { const f = id ? folders.get(id) : null; if (!f) return null; const p = f.parent_id ? folders.get(f.parent_id) : null; return p ? `${p.name}/${f.name}` : f.name; }; return json(core.listVideos().map((v) => ({
   video_id: v.id,
   title: v.title,
+  folder: pathOf(v.folder_id),
   versions: v.version_count,
   latest_version: v.latest?.number ?? null,
   latest_file: v.latest?.path ?? null,
@@ -68,7 +71,7 @@ server.registerTool('list_videos', {
   open_revisions_sent: v.open_count,
   unsent_drafts: v.draft_count,
   updated_at: new Date(v.updated_at).toISOString(),
-})))));
+}))); }));
 
 server.registerTool('get_revisions', {
   title: 'Get revisions',

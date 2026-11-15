@@ -37,15 +37,48 @@ app.get('/api/health', async () => ({ ok: true, app: 'bottle' }));
 app.get('/api/videos', async () => core.listVideos());
 app.get<{ Params: { id: string } }>('/api/videos/:id', async (req) => core.videoDetail(req.params.id));
 
-app.post<{ Body: { path: string; title?: string; videoId?: string } }>('/api/videos', async (req) => {
-  const r = await core.addVideo(req.body.path, { title: req.body.title, videoId: req.body.videoId });
+app.get('/api/folders', async () => core.listFolders());
+app.post<{ Body: { name: string; parent_id?: string | null } }>('/api/folders', async (req) => {
+  const f = core.createFolder(req.body.name, req.body.parent_id ?? null);
+  changed('videos');
+  return f;
+});
+app.patch<{ Params: { id: string }; Body: { name?: string; parent_id?: string | null; position?: number } }>('/api/folders/:id', async (req) => {
+  const f = core.updateFolder(req.params.id, req.body);
+  changed('videos');
+  return f;
+});
+app.delete<{ Params: { id: string } }>('/api/folders/:id', async (req) => {
+  core.deleteFolder(req.params.id);
+  changed('videos');
+  return { ok: true };
+});
+app.post<{ Body: { ids: string[]; folder_id: string | null; before_id?: string | null } }>('/api/videos/move', async (req) => {
+  const r = core.moveVideos(req.body.ids, req.body.folder_id, req.body.before_id);
+  changed('videos');
+  return r;
+});
+// Remove from library = forget the reference + its comments. Never touches the file on disk.
+app.post<{ Body: { ids: string[] } }>('/api/videos/remove', async (req) => {
+  const r = core.removeVideos(req.body.ids);
+  changed('videos');
+  return r;
+});
+app.post<{ Body: { ids: string[] } }>('/api/videos/restore', async (req) => {
+  const r = core.restoreVideos(req.body.ids);
+  changed('videos');
+  return r;
+});
+
+app.post<{ Body: { path: string; title?: string; videoId?: string; folderId?: string | null } }>('/api/videos', async (req) => {
+  const r = await core.addVideo(req.body.path, { title: req.body.title, videoId: req.body.videoId, folder: req.body.folderId ?? null });
   changed('videos', { videoId: r.video.id });
   return r;
 });
 
 app.get('/api/platform', async () => ({ id: platform.id, canPick: await platform.canPick() }));
 
-app.post<{ Body: { videoId?: string } }>('/api/videos/pick', async (req, reply) => {
+app.post<{ Body: { videoId?: string; folderId?: string | null } }>('/api/videos/pick', async (req, reply) => {
   let file: string | null;
   try {
     file = await platform.pickVideoFile();
@@ -54,7 +87,7 @@ app.post<{ Body: { videoId?: string } }>('/api/videos/pick', async (req, reply) 
     throw e;
   }
   if (!file) return { cancelled: true };
-  const r = await core.addVideo(file, { videoId: req.body?.videoId });
+  const r = await core.addVideo(file, { videoId: req.body?.videoId, folder: req.body?.folderId ?? null });
   changed('videos', { videoId: r.video.id });
   return r;
 });
@@ -219,6 +252,9 @@ if (fs.existsSync(WEB_DIR)) {
 }
 
 watchExternalWrites();
+// Removed references stay restorable for a while (the Undo toast lasts 8s), then the rows go.
+core.purgeRemoved(0);
+setInterval(() => { if (core.purgeRemoved(30_000)) changed('videos'); }, 10_000).unref();
 
 try {
   await app.listen({ host: HOST, port: PORT });

@@ -65,7 +65,25 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS folders (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+  position REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 `);
+
+// Migrations for libraries created before folders existed. Additive only.
+{
+  const cols = new Set((db.prepare('PRAGMA table_info(videos)').all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has('folder_id')) db.exec('ALTER TABLE videos ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL');
+  if (!cols.has('position')) db.exec('ALTER TABLE videos ADD COLUMN position REAL NOT NULL DEFAULT 0');
+  // Soft remove: "Remove from library" hides the reference first so it can be undone; it is purged
+  // a little later. The video file on disk is never touched either way.
+  if (!cols.has('removed_at')) db.exec('ALTER TABLE videos ADD COLUMN removed_at INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS videos_folder ON videos(folder_id, position)');
+}
 
 const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
 /** Short, agent-friendly ids like `vid_k3m9q2xa`. */

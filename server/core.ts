@@ -8,7 +8,7 @@ import path from 'node:path';
 import { db, newId, now } from './db.js';
 import { probe, frameRGBA } from './media.js';
 import { burnShapes, encodePNG } from './render.js';
-import type { Comment, Drawing, Round, Settings, Shape, Version, Video, VideoDetail, VideoSummary } from './types.js';
+import type { Comment, Drawing, Folder, Round, Settings, Shape, Version, Video, VideoDetail, VideoSummary } from './types.js';
 
 export class UserError extends Error { status = 400; }
 export class NotFound extends UserError { status = 404; }
@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: Settings = {
   transcriber: 'browser',
   whisper_bin: '',
   whisper_model: '',
+  click_sound: false,
 };
 
 export function getSettings(): Settings {
@@ -55,8 +56,9 @@ function withMissing(v: Version): Version {
 }
 
 export function getVideo(id: string): Video {
-  const v = db.prepare('SELECT * FROM videos WHERE id = ?').get(id) as Video | undefined;
+  const v = db.prepare('SELECT * FROM videos WHERE id = ? AND removed_at IS NULL').get(id) as Video | undefined;
   if (!v) throw new NotFound(`No video with id ${id}. Call list_videos to see available ids.`);
+  delete (v as any).removed_at;
   return v;
 }
 export function getVersion(id: string): Version {
@@ -77,7 +79,7 @@ export function getComment(id: string): Comment {
 }
 
 export function listVideos(): VideoSummary[] {
-  const vids = db.prepare('SELECT * FROM videos ORDER BY updated_at DESC').all() as Video[];
+  const vids = db.prepare('SELECT * FROM videos WHERE removed_at IS NULL ORDER BY updated_at DESC').all() as Video[];
   const counts = db.prepare(`
     SELECT
       SUM(CASE WHEN c.status = 'open' AND r.status = 'submitted' THEN 1 ELSE 0 END) AS open_count,
@@ -88,6 +90,7 @@ export function listVideos(): VideoSummary[] {
   return vids.map((v) => {
     const c = counts.get(v.id) as any;
     const latest = latestVersion(v.id);
+    delete (v as any).removed_at;
     return {
       ...v,
       latest: latest ? withMissing(latest) : null,
@@ -134,7 +137,7 @@ const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|avi|ogv|ogg|mpg|mpeg|3gp|hevc)$/i;
  * - same path but file changed on disk, or title matching an existing video → next version.
  * - otherwise → a new video at v1.
  */
-export async function addVideo(input: string, opts: { title?: string; videoId?: string } = {}): Promise<AddResult> {
+export async function addVideo(input: string, opts: { title?: string; videoId?: string; folder?: string | null } = {}): Promise<AddResult> {
   if (!input || typeof input !== 'string') throw new UserError('path is required');
   let p = input.trim().replace(/^file:\/\//, '');
   if (p.startsWith('~')) p = path.join(os.homedir(), p.slice(1));
@@ -146,8 +149,12 @@ export async function addVideo(input: string, opts: { title?: string; videoId?: 
 
   let target: Video | null = null;
   if (opts.videoId) target = getVideo(opts.videoId);
+  const folderId = opts.folder ? resolveFolder(opts.folder, true) : null;
 
-  const samePath = db.prepare('SELECT * FROM versions WHERE path = ? ORDER BY created_at DESC LIMIT 1').get(p) as Version | undefined;
+  // A video that was just removed (still undoable) shouldn't swallow a fresh add of the same file.
+  db.prepare('DELETE FROM videos WHERE removed_at IS NOT NULL AND id IN (SELECT video_id FROM versions WHERE path = ?)').run(p);
+  const samePath = db.prepare(`SELECT ve.* FROM versions ve JOIN videos vi ON vi.id = ve.video_id
+    WHERE ve.path = ? AND vi.removed_at IS NULL ORDER BY ve.created_at DESC LIMIT 1`).get(p) as Version | undefined;
   if (!target && samePath) {
     const unchanged = samePath.size === st.size && samePath.mtime === Math.round(st.mtimeMs);
     if (unchanged) {
@@ -159,10 +166,11 @@ export async function addVideo(input: string, opts: { title?: string; videoId?: 
   if (!target) {
     // Same title, or same file-name stem as an existing version ("teaser_v1.mp4" ↔ "teaser_v2.mp4").
     const keys = new Set([norm(title), norm(path.basename(p))]);
-    const vids = db.prepare('SELECT * FROM videos ORDER BY updated_at DESC').all() as Video[];
+    const vids = db.prepare('SELECT * FROM videos WHERE removed_at IS NULL ORDER BY updated_at DESC').all() as Video[];
     target = vids.find((v) => keys.has(norm(v.title))) || null;
     if (!target) {
-      const hit = (db.prepare('SELECT video_id, filename FROM versions ORDER BY created_at DESC').all() as { video_id: string; filename: string }[])
+      const hit = (db.prepare(`SELECT ve.video_id, ve.filename FROM versions ve JOIN videos vi ON vi.id = ve.video_id
+        WHERE vi.removed_at IS NULL ORDER BY ve.created_at DESC`).all() as { video_id: string; filename: string }[])
         .find((r) => keys.has(norm(r.filename)));
       if (hit) target = getVideo(hit.video_id);
     }
@@ -173,11 +181,13 @@ export async function addVideo(input: string, opts: { title?: string; videoId?: 
   const tx = db.transaction(() => {
     let outcome: AddResult['outcome'] = 'new_version';
     if (!target) {
-      target = { id: newId('vid'), title, created_at: t, updated_at: t };
-      db.prepare('INSERT INTO videos(id, title, created_at, updated_at) VALUES (?,?,?,?)').run(target.id, target.title, t, t);
+      const pos = ((db.prepare('SELECT MIN(position) AS p FROM videos WHERE removed_at IS NULL AND folder_id IS ?').get(folderId) as any).p ?? 1) - 1;
+      target = { id: newId('vid'), title, folder_id: folderId, position: pos, created_at: t, updated_at: t };
+      db.prepare('INSERT INTO videos(id, title, folder_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?)').run(target.id, target.title, folderId, pos, t, t);
       outcome = 'new_video';
     } else {
       db.prepare('UPDATE videos SET updated_at = ? WHERE id = ?').run(t, target.id);
+      if (folderId) db.prepare('UPDATE videos SET folder_id = ? WHERE id = ?').run(folderId, target.id);
     }
     const n = ((db.prepare('SELECT MAX(number) AS n FROM versions WHERE video_id = ?').get(target.id) as any).n || 0) + 1;
     const version: Version = {
@@ -199,9 +209,98 @@ export function renameVideo(id: string, title: string): Video {
   return getVideo(id);
 }
 /** Removes from the library only. The file on disk is never touched. */
-export function removeVideo(id: string) {
-  getVideo(id);
-  db.prepare('DELETE FROM videos WHERE id = ?').run(id);
+/**
+ * "Remove from library": hides the reference (and with it the comments) right away, so it can be
+ * undone; purgeRemoved() deletes the rows later. The video file on disk is NEVER touched.
+ */
+export function removeVideo(id: string) { removeVideos([id]); }
+export function removeVideos(ids: string[]) {
+  const t = now();
+  const stmt = db.prepare('UPDATE videos SET removed_at = ? WHERE id = ? AND removed_at IS NULL');
+  db.transaction(() => { for (const id of ids) { getVideo(id); stmt.run(t, id); } })();
+  return { removed: ids.length };
+}
+export function restoreVideos(ids: string[]) {
+  const stmt = db.prepare('UPDATE videos SET removed_at = NULL WHERE id = ?');
+  db.transaction(() => { for (const id of ids) stmt.run(id); })();
+  return { restored: ids.length };
+}
+/** Permanently drop removed references (rows only; files are never deleted). */
+export function purgeRemoved(olderThanMs: number) {
+  return db.prepare('DELETE FROM videos WHERE removed_at IS NOT NULL AND removed_at < ?').run(now() - olderThanMs).changes;
+}
+
+// ---------------- folders ----------------
+export function listFolders(): Folder[] {
+  return db.prepare('SELECT * FROM folders ORDER BY position, created_at').all() as Folder[];
+}
+export function getFolder(id: string): Folder {
+  const f = db.prepare('SELECT * FROM folders WHERE id = ?').get(id) as Folder | undefined;
+  if (!f) throw new NotFound(`No folder with id ${id}`);
+  return f;
+}
+/** Accepts a folder id or a folder name (case-insensitive). Optionally creates it at the top level. */
+export function resolveFolder(idOrName: string, create = false): string {
+  const byId = db.prepare('SELECT id FROM folders WHERE id = ?').get(idOrName) as { id: string } | undefined;
+  if (byId) return byId.id;
+  const byName = db.prepare('SELECT id FROM folders WHERE lower(name) = lower(?) ORDER BY parent_id IS NOT NULL, created_at LIMIT 1').get(idOrName.trim()) as { id: string } | undefined;
+  if (byName) return byName.id;
+  if (!create) throw new NotFound(`No folder named "${idOrName}"`);
+  return createFolder(idOrName).id;
+}
+function checkParent(parentId: string | null, selfId?: string) {
+  if (!parentId) return;
+  const parent = getFolder(parentId);
+  if (parent.parent_id) throw new UserError('Folders nest one level deep. Pick a top-level folder.');
+  if (selfId) {
+    if (parentId === selfId) throw new UserError('A folder can’t go inside itself.');
+    const kids = (db.prepare('SELECT COUNT(*) AS n FROM folders WHERE parent_id = ?').get(selfId) as any).n;
+    if (kids) throw new UserError('This folder has folders inside it, so it can only live at the top level.');
+  }
+}
+export function createFolder(name: string, parentId: string | null = null): Folder {
+  const n = name.trim() || 'New folder';
+  checkParent(parentId);
+  const pos = ((db.prepare('SELECT MAX(position) AS p FROM folders WHERE parent_id IS ?').get(parentId) as any).p ?? 0) + 1;
+  const f: Folder = { id: newId('fld'), name: n, parent_id: parentId, position: pos, created_at: now() };
+  db.prepare('INSERT INTO folders(id, name, parent_id, position, created_at) VALUES (@id, @name, @parent_id, @position, @created_at)').run(f);
+  return f;
+}
+export function updateFolder(id: string, patch: { name?: string; parent_id?: string | null; position?: number }): Folder {
+  const f = getFolder(id);
+  if (patch.parent_id !== undefined) checkParent(patch.parent_id, id);
+  db.prepare('UPDATE folders SET name = ?, parent_id = ?, position = ? WHERE id = ?').run(
+    patch.name !== undefined ? (patch.name.trim() || f.name) : f.name,
+    patch.parent_id !== undefined ? patch.parent_id : f.parent_id,
+    patch.position ?? f.position, id);
+  return getFolder(id);
+}
+/** Deleting a folder never removes videos: they (and any sub-folders) move up one level. */
+export function deleteFolder(id: string) {
+  const f = getFolder(id);
+  db.transaction(() => {
+    db.prepare('UPDATE videos SET folder_id = ? WHERE folder_id = ?').run(f.parent_id, id);
+    db.prepare('UPDATE folders SET parent_id = ? WHERE parent_id = ?').run(f.parent_id, id);
+    db.prepare('DELETE FROM folders WHERE id = ?').run(id);
+  })();
+  return { ok: true };
+}
+/**
+ * Move videos into a folder (null = top level). With beforeId they're placed right before that
+ * video (manual ordering); otherwise at the end.
+ */
+export function moveVideos(ids: string[], folderId: string | null, beforeId?: string | null) {
+  if (folderId) getFolder(folderId);
+  db.transaction(() => {
+    const siblings = (db.prepare('SELECT id, position FROM videos WHERE removed_at IS NULL AND folder_id IS ? ORDER BY position, updated_at DESC').all(folderId) as { id: string; position: number }[])
+      .filter((v) => !ids.includes(v.id));
+    let at = beforeId ? siblings.findIndex((v) => v.id === beforeId) : -1;
+    if (at < 0) at = siblings.length;
+    const order = [...siblings.slice(0, at).map((v) => v.id), ...ids, ...siblings.slice(at).map((v) => v.id)];
+    const stmt = db.prepare('UPDATE videos SET folder_id = ?, position = ? WHERE id = ?');
+    order.forEach((id, i) => stmt.run(folderId, i, id));
+  })();
+  return { ok: true };
 }
 export function removeVersion(id: string) {
   const v = getVersion(id);

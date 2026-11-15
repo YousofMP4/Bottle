@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useStore } from '../lib/store';
+import { useStore, askRemove } from '../lib/store';
 import { api } from '../lib/api';
 import { player } from '../lib/bus';
 import { spring } from '../lib/motion';
@@ -119,8 +119,8 @@ function TopBar({ title, videoId, versionId, unsent }: { title: string; videoId:
               <button className="menu-item" onClick={() => { close(); setEditing(true); }}>Rename</button>
               <button className="menu-item" onClick={() => { close(); api.reveal(versionId); }}><IFolder size={15} /> Show file in Finder</button>
               <div className="menu-sep" />
-              <button className="menu-item danger" onClick={async () => { close(); await api.removeVideo(videoId); useStore.getState().loadVideos(); go({ name: 'library' }); toast({ text: 'Removed from your library', sub: 'The video file itself is untouched.' }); }}>
-                <ITrash size={15} /> Remove from library
+              <button className="menu-item danger" onClick={() => { close(); askRemove([videoId]); }}>
+                <ITrash size={15} /> Remove from library…
               </button>
             </div>
           )}

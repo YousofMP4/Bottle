@@ -14,7 +14,7 @@ export function PasteDialog() {
   const close = () => { set({ dialog: null }); setErr(''); };
   const submit = async () => {
     setBusy(true); setErr('');
-    try { const r = await api.addPath(path, pasteFor); close(); setPath(''); afterAdd(r); }
+    try { const st = useStore.getState(); const r = await api.addPath(path, pasteFor, st.route.name === 'library' ? st.route.folder ?? null : null); close(); setPath(''); afterAdd(r); }
     catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   };

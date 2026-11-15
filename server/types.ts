@@ -33,9 +33,20 @@ export interface Version {
   missing?: boolean;
 }
 
+export interface Folder {
+  id: string;
+  name: string;
+  /** Folders nest one level: a folder with a parent can't have children. */
+  parent_id: string | null;
+  position: number;
+  created_at: number;
+}
+
 export interface Video {
   id: string;
   title: string;
+  folder_id?: string | null;
+  position?: number;
   created_at: number;
   updated_at: number;
 }
@@ -93,4 +104,6 @@ export interface Settings {
   transcriber: 'browser' | 'whisper' | 'off';
   whisper_bin: string;
   whisper_model: string;
+  /** Soft mechanical click on button presses (WebAudio). Off by default. */
+  click_sound: boolean;
 }

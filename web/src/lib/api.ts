@@ -1,4 +1,4 @@
-import type { Comment, Settings, VideoDetail, VideoSummary, Video, Version, Round, Drawing } from '../../../server/types';
+import type { Comment, Settings, VideoDetail, VideoSummary, Video, Version, Round, Drawing, Folder } from '../../../server/types';
 
 async function req<T>(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const init: RequestInit = { method, headers: { ...headers } };
@@ -17,8 +17,15 @@ export const api = {
   videos: () => req<VideoSummary[]>('GET', '/api/videos'),
   video: (id: string) => req<VideoDetail>('GET', `/api/videos/${id}`),
   platform: () => req<{ id: string; canPick: boolean }>('GET', '/api/platform'),
-  pick: (videoId?: string) => req<AddResult & { cancelled?: boolean }>('POST', '/api/videos/pick', { videoId }),
-  addPath: (path: string, videoId?: string) => req<AddResult>('POST', '/api/videos', { path, videoId }),
+  pick: (videoId?: string, folderId?: string | null) => req<AddResult & { cancelled?: boolean }>('POST', '/api/videos/pick', { videoId, folderId }),
+  addPath: (path: string, videoId?: string, folderId?: string | null) => req<AddResult>('POST', '/api/videos', { path, videoId, folderId }),
+  folders: () => req<Folder[]>('GET', '/api/folders'),
+  createFolder: (name: string, parent_id: string | null) => req<Folder>('POST', '/api/folders', { name, parent_id }),
+  updateFolder: (id: string, patch: { name?: string; parent_id?: string | null; position?: number }) => req<Folder>('PATCH', `/api/folders/${id}`, patch),
+  deleteFolder: (id: string) => req('DELETE', `/api/folders/${id}`),
+  moveVideos: (ids: string[], folder_id: string | null, before_id?: string | null) => req('POST', '/api/videos/move', { ids, folder_id, before_id }),
+  removeVideos: (ids: string[]) => req<{ removed: number }>('POST', '/api/videos/remove', { ids }),
+  restoreVideos: (ids: string[]) => req<{ restored: number }>('POST', '/api/videos/restore', { ids }),
   rename: (id: string, title: string) => req<Video>('PATCH', `/api/videos/${id}`, { title }),
   removeVideo: (id: string) => req('DELETE', `/api/videos/${id}`),
   reveal: (versionId: string) => req('POST', `/api/versions/${versionId}/reveal`),
