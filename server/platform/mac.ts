@@ -10,7 +10,7 @@ export const mac: Platform = {
     // `activate` brings osascript's own dialog to the front without needing Automation permission.
     const r = await exec('osascript', [
       '-e', 'activate',
-      '-e', 'set f to choose file with prompt "Choose a video to review in Bottle" of type {"public.movie", "public.mpeg-4", "com.apple.quicktime-movie"}',
+      '-e', 'set f to choose file with prompt "Choose a video to review in Portal" of type {"public.movie", "public.mpeg-4", "com.apple.quicktime-movie"}',
       '-e', 'POSIX path of f',
     ]);
     if (r.code !== 0) {

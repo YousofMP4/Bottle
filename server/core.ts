@@ -8,10 +8,38 @@ import path from 'node:path';
 import { db, newId, now } from './db.js';
 import { probe, frameRGBA } from './media.js';
 import { burnShapes, encodePNG } from './render.js';
-import type { Comment, Drawing, Folder, Round, Settings, Shape, Version, Video, VideoDetail, VideoSummary } from './types.js';
+import type { Activity, ActivityKind, Comment, Drawing, Folder, ProjectLink, ProjectStatus, Round, Settings, Shape, Version, Video, VideoDetail, VideoSummary } from './types.js';
+import { DONE_PRUNE_DAYS, PROJECT_STATUSES, STATUS_LABEL } from './types.js';
 
 export class UserError extends Error { status = 400; }
 export class NotFound extends UserError { status = 404; }
+
+// ---------------- activity ----------------
+/** Who is calling into this module: the web server acts for 'you', the MCP process for 'agent'. */
+let ACTOR: Activity['actor'] = 'you';
+export function setActor(a: Activity['actor']) { ACTOR = a; }
+
+export function logActivity(kind: ActivityKind, text: string, refs: { video_id?: string | null; folder_id?: string | null } = {}) {
+  db.prepare('INSERT INTO activity(id, kind, actor, text, video_id, folder_id, created_at) VALUES (?,?,?,?,?,?,?)')
+    .run(newId('act'), kind, ACTOR, text, refs.video_id ?? null, refs.folder_id ?? null, now());
+}
+const SEEN_KEY = '_activity_seen_at';
+export function activitySeenAt(): number {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(SEEN_KEY) as { value: string } | undefined;
+  return r ? Number(r.value) || 0 : 0;
+}
+/** Recent activity, newest first. `unread` counts what others (the agent) did since you last opened the bell. */
+export function listActivity(limit = 50, since?: number): { items: Activity[]; unread: number; seen_at: number } {
+  const seen = activitySeenAt();
+  const items = (since !== undefined
+    ? db.prepare('SELECT * FROM activity WHERE created_at > ? ORDER BY created_at DESC LIMIT ?').all(since, limit)
+    : db.prepare('SELECT * FROM activity ORDER BY created_at DESC LIMIT ?').all(limit)) as Activity[];
+  const unread = (db.prepare("SELECT COUNT(*) AS n FROM activity WHERE created_at > ? AND actor != 'you'").get(seen) as any).n;
+  return { items, unread, seen_at: seen };
+}
+export function markActivitySeen() {
+  db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(SEEN_KEY, String(now()));
+}
 
 // ---------------- settings ----------------
 const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +75,7 @@ export function setSettings(patch: Partial<Settings>): Settings {
 function rowToComment(r: any): Comment {
   return {
     ...r,
+    general: !!r.general,
     audio_peaks: r.audio_peaks ? JSON.parse(r.audio_peaks) : null,
     drawing: r.drawing ? JSON.parse(r.drawing) : null,
   };
@@ -106,7 +135,7 @@ export function videoDetail(id: string): VideoDetail {
   return {
     video,
     versions: versionsOf(id),
-    comments: (db.prepare('SELECT * FROM comments WHERE video_id = ? ORDER BY timestamp, created_at').all(id) as any[]).map(rowToComment),
+    comments: (db.prepare('SELECT * FROM comments WHERE video_id = ? ORDER BY general DESC, timestamp, created_at').all(id) as any[]).map(rowToComment),
     rounds: db.prepare('SELECT * FROM rounds WHERE video_id = ? ORDER BY number').all(id) as Round[],
   };
 }
@@ -200,6 +229,11 @@ export async function addVideo(input: string, opts: { title?: string; videoId?: 
     return { outcome, version };
   });
   const { outcome, version } = tx();
+  const fid = getVideo(target!.id).folder_id ?? null;
+  const proj = fid ? projectOf(fid) : null;
+  const where = proj ? ` in “${proj.name}”` : '';
+  if (outcome === 'new_video') logActivity('video_added', `“${target!.title}” uploaded${where}`, { video_id: target!.id, folder_id: proj?.id });
+  else logActivity('version_added', `v${version.number} of “${target!.title}” added${where}`, { video_id: target!.id, folder_id: proj?.id });
   return { outcome, video: getVideo(target!.id), version: withMissing(version) };
 }
 
@@ -231,12 +265,22 @@ export function purgeRemoved(olderThanMs: number) {
 }
 
 // ---------------- folders ----------------
+/** The project (top-level folder) a folder belongs to. */
+export function projectOf(folderId: string): Folder | null {
+  try { const f = getFolder(folderId); return f.parent_id ? getFolder(f.parent_id) : f; } catch { return null; }
+}
+function rowToFolder(r: any): Folder {
+  let links: ProjectLink[] = [];
+  try { links = JSON.parse(r.links || '[]'); } catch { /* keep empty */ }
+  return { ...r, links, notes: r.notes ?? '', status: r.status || 'ready', status_at: r.status_at ?? null, cleaned_at: r.cleaned_at ?? null };
+}
 export function listFolders(): Folder[] {
-  return db.prepare('SELECT * FROM folders ORDER BY position, created_at').all() as Folder[];
+  return (db.prepare('SELECT * FROM folders ORDER BY position, created_at').all() as any[]).map(rowToFolder);
 }
 export function getFolder(id: string): Folder {
-  const f = db.prepare('SELECT * FROM folders WHERE id = ?').get(id) as Folder | undefined;
-  if (!f) throw new NotFound(`No folder with id ${id}`);
+  const r = db.prepare('SELECT * FROM folders WHERE id = ?').get(id);
+  if (!r) throw new NotFound(`No folder with id ${id}`);
+  const f = rowToFolder(r);
   return f;
 }
 /** Accepts a folder id or a folder name (case-insensitive). Optionally creates it at the top level. */
@@ -258,26 +302,66 @@ function checkParent(parentId: string | null, selfId?: string) {
     if (kids) throw new UserError('This folder has folders inside it, so it can only live at the top level.');
   }
 }
-export function createFolder(name: string, parentId: string | null = null): Folder {
+export function createFolder(name: string, parentId: string | null = null, opts: { status?: ProjectStatus; notes?: string } = {}): Folder {
   const n = name.trim() || 'New folder';
   checkParent(parentId);
+  const status = opts.status ?? 'ready';
+  if (!PROJECT_STATUSES.includes(status)) throw new UserError(`status must be one of ${PROJECT_STATUSES.join(', ')}`);
   const pos = ((db.prepare('SELECT MAX(position) AS p FROM folders WHERE parent_id IS ?').get(parentId) as any).p ?? 0) + 1;
-  const f: Folder = { id: newId('fld'), name: n, parent_id: parentId, position: pos, created_at: now() };
-  db.prepare('INSERT INTO folders(id, name, parent_id, position, created_at) VALUES (@id, @name, @parent_id, @position, @created_at)').run(f);
-  return f;
+  const t = now();
+  const id = newId('fld');
+  db.prepare("INSERT INTO folders(id, name, parent_id, position, created_at, status, status_at, links, notes) VALUES (?,?,?,?,?,?,?,'[]',?)")
+    .run(id, n, parentId, pos, t, status, t, opts.notes ?? '');
+  if (!parentId) logActivity('project_created', `New project “${n}” in ${STATUS_LABEL[status]}`, { folder_id: id });
+  return getFolder(id);
 }
-export function updateFolder(id: string, patch: { name?: string; parent_id?: string | null; position?: number }): Folder {
+
+export interface FolderPatch {
+  name?: string; parent_id?: string | null; position?: number;
+  status?: ProjectStatus; notes?: string; links?: ProjectLink[];
+  /** true: the Done clean-up is finished (sets cleaned_at). false: clears it. */
+  cleaned?: boolean;
+}
+export function updateFolder(id: string, patch: FolderPatch): Folder {
   const f = getFolder(id);
   if (patch.parent_id !== undefined) checkParent(patch.parent_id, id);
-  db.prepare('UPDATE folders SET name = ?, parent_id = ?, position = ? WHERE id = ?').run(
-    patch.name !== undefined ? (patch.name.trim() || f.name) : f.name,
-    patch.parent_id !== undefined ? patch.parent_id : f.parent_id,
-    patch.position ?? f.position, id);
+  if (patch.status !== undefined && !PROJECT_STATUSES.includes(patch.status)) throw new UserError(`status must be one of ${PROJECT_STATUSES.join(', ')}`);
+  const name = patch.name !== undefined ? (patch.name.trim() || f.name) : f.name;
+  const status = patch.status ?? f.status;
+  const links = patch.links !== undefined ? cleanLinks(patch.links) : f.links;
+  const notes = patch.notes !== undefined ? patch.notes : f.notes;
+  const moved = status !== f.status;
+  const cleanedAt = patch.cleaned === true ? now() : patch.cleaned === false || moved ? null : f.cleaned_at;
+  db.prepare('UPDATE folders SET name = ?, parent_id = ?, position = ?, status = ?, status_at = ?, links = ?, notes = ?, cleaned_at = ? WHERE id = ?').run(
+    name, patch.parent_id !== undefined ? patch.parent_id : f.parent_id, patch.position ?? f.position,
+    status, moved ? now() : f.status_at, JSON.stringify(links), notes, cleanedAt, id);
+  const isProject = !(patch.parent_id !== undefined ? patch.parent_id : f.parent_id);
+  if (isProject) {
+    if (status !== f.status) logActivity('project_moved', `“${name}” moved to ${STATUS_LABEL[status]}`, { folder_id: id });
+    if (name !== f.name) logActivity('project_renamed', `“${f.name}” renamed to “${name}”`, { folder_id: id });
+    const added = links.filter((l) => !f.links.some((o) => o.url === l.url));
+    const removed = f.links.filter((l) => !links.some((o) => o.url === l.url));
+    if (added.length) logActivity('project_updated', `Link added to “${name}”: ${added.map((l) => l.label).join(', ')}`, { folder_id: id });
+    if (removed.length) logActivity('project_updated', `Link removed from “${name}”: ${removed.map((l) => l.label).join(', ')}`, { folder_id: id });
+    if (notes !== f.notes) logActivity('project_updated', `Notes updated on “${name}”`, { folder_id: id });
+    if (patch.cleaned === true) logActivity('project_cleaned', `Unessential files deleted for “${name}”`, { folder_id: id });
+  }
   return getFolder(id);
+}
+function cleanLinks(links: ProjectLink[]): ProjectLink[] {
+  return links.map((l) => {
+    let url = String(l.url || '').trim();
+    if (!url) throw new UserError('A link needs a URL');
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;
+    let label = String(l.label || '').trim();
+    if (!label) { try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = url; } }
+    return { id: l.id || newId('lnk'), label, url };
+  });
 }
 /** Deleting a folder never removes videos: they (and any sub-folders) move up one level. */
 export function deleteFolder(id: string) {
   const f = getFolder(id);
+  if (!f.parent_id) logActivity('project_deleted', `Project “${f.name}” deleted (its videos moved to the Library)`);
   db.transaction(() => {
     db.prepare('UPDATE videos SET folder_id = ? WHERE folder_id = ?').run(f.parent_id, id);
     db.prepare('UPDATE folders SET parent_id = ? WHERE parent_id = ?').run(f.parent_id, id);
@@ -328,6 +412,8 @@ export function submitRound(videoId: string): { round: Round; comments: Comment[
   const t = now();
   db.prepare("UPDATE rounds SET status = 'submitted', submitted_at = ? WHERE id = ?").run(t, r.id);
   db.prepare('UPDATE videos SET updated_at = ? WHERE id = ?').run(t, videoId);
+  const v = getVideo(videoId);
+  logActivity('revisions_sent', `${comments.length} revision${comments.length === 1 ? '' : 's'} sent to the editor for “${v.title}”`, { video_id: v.id, folder_id: v.folder_id ? projectOf(v.folder_id)?.id : null });
   return { round: { ...r, status: 'submitted', submitted_at: t }, comments };
 }
 
@@ -337,6 +423,8 @@ export interface NewComment {
   version_id: string;
   parent_id?: string | null;
   timestamp?: number;
+  /** About the whole video rather than one moment. */
+  general?: boolean;
   text?: string;
   transcript?: string;
   drawing?: Drawing | null;
@@ -367,10 +455,11 @@ export function createComment(c: NewComment): Comment {
   const t = now();
   const id = newId(parent ? 'rep' : 'rev');
   const round = parent ? null : openRound(version.video_id);
-  db.prepare(`INSERT INTO comments(id, video_id, version_id, round_id, parent_id, timestamp, text, transcript, drawing, author, author_type, status, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`).run(
+  db.prepare(`INSERT INTO comments(id, video_id, version_id, round_id, parent_id, timestamp, general, text, transcript, drawing, author, author_type, status, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`).run(
     id, version.video_id, version.id, round?.id ?? null, parent?.id ?? null,
     parent ? parent.timestamp : Math.max(0, Number(c.timestamp) || 0),
+    (parent ? parent.general : !!c.general) ? 1 : 0,
     text, transcript, drawing ? JSON.stringify(drawing) : null,
     c.author || getSettings().name, c.author_type || 'human', t, t,
   );
@@ -378,7 +467,7 @@ export function createComment(c: NewComment): Comment {
   return getComment(id);
 }
 
-export function updateComment(id: string, patch: Partial<Pick<Comment, 'text' | 'status' | 'transcript' | 'timestamp' | 'drawing' | 'resolved_note'>> & { audio?: string | null; audio_duration?: number; audio_peaks?: number[] | null }): Comment {
+export function updateComment(id: string, patch: Partial<Pick<Comment, 'text' | 'status' | 'transcript' | 'timestamp' | 'general' | 'drawing' | 'resolved_note'>> & { audio?: string | null; audio_duration?: number; audio_peaks?: number[] | null }): Comment {
   const c = getComment(id);
   const fields: string[] = [];
   const vals: any[] = [];
@@ -391,6 +480,7 @@ export function updateComment(id: string, patch: Partial<Pick<Comment, 'text' | 
   }
   if (patch.resolved_note !== undefined) set('resolved_note', patch.resolved_note);
   if (patch.timestamp !== undefined) set('timestamp', Math.max(0, Number(patch.timestamp) || 0));
+  if (patch.general !== undefined) set('general', patch.general ? 1 : 0);
   if (patch.drawing !== undefined) { const d = cleanDrawing(patch.drawing); set('drawing', d ? JSON.stringify(d) : null); }
   if (patch.audio !== undefined) set('audio', patch.audio);
   if (patch.audio_duration !== undefined) set('audio_duration', patch.audio_duration);
@@ -407,18 +497,28 @@ export function deleteComment(id: string): Comment {
   return c;
 }
 
-export function replyToRevision(id: string, text: string, author = 'Agent', authorType: 'human' | 'agent' = 'agent'): Comment {
+export function replyToRevision(id: string, text: string, author = 'Editor', authorType: 'human' | 'agent' = 'agent'): Comment {
   const parent = getComment(id);
   const root = parent.parent_id ? getComment(parent.parent_id) : parent;
   if (!text?.trim()) throw new UserError('text is required');
-  return createComment({ version_id: root.version_id, parent_id: root.id, text, author, author_type: authorType });
+  const c = createComment({ version_id: root.version_id, parent_id: root.id, text, author, author_type: authorType });
+  if (authorType === 'agent') {
+    const v = getVideo(c.video_id);
+    logActivity('agent_reply', `${author} replied on “${v.title}”: ${text.trim().slice(0, 90)}`, { video_id: v.id, folder_id: v.folder_id ? projectOf(v.folder_id)?.id : null });
+  }
+  return c;
 }
 
-export function resolveRevision(id: string, note?: string, author = 'Agent', authorType: 'human' | 'agent' = 'agent'): Comment {
+export function resolveRevision(id: string, note?: string, author = 'Editor', authorType: 'human' | 'agent' = 'agent'): Comment {
   const c = getComment(id);
   const root = c.parent_id ? getComment(c.parent_id) : c;
   if (note?.trim()) replyToRevision(root.id, note, author, authorType);
-  return updateComment(root.id, { status: 'resolved', resolved_note: note?.trim() || '' });
+  const done = updateComment(root.id, { status: 'resolved', resolved_note: note?.trim() || '' });
+  if (authorType === 'agent') {
+    const v = getVideo(done.video_id);
+    logActivity('revision_resolved', `${author} resolved a revision on “${v.title}”`, { video_id: v.id, folder_id: v.folder_id ? projectOf(v.folder_id)?.id : null });
+  }
+  return done;
 }
 
 // ---------------- agent-facing views ----------------
@@ -450,9 +550,11 @@ export interface RevisionJSON {
   version: number;
   version_id: string;
   file: string;
-  timestamp: number;
+  /** "video": about the whole video (timestamp/timecode/frame are null unless it has a drawing). */
+  scope: 'moment' | 'video';
+  timestamp: number | null;
   timecode: string;
-  frame: number;
+  frame: number | null;
   text: string;
   transcript: string;
   has_voice_note: boolean;
@@ -476,9 +578,11 @@ export function revisionJSON(c: Comment, cache = new Map<string, any>()): Revisi
     version: v.number,
     version_id: v.id,
     file: v.path,
-    timestamp: +c.timestamp.toFixed(3),
-    timecode: fmt(c.timestamp),
-    frame: Math.round(c.timestamp * v.fps),
+    scope: c.general ? 'video' : 'moment',
+    // A video-wide note with a drawing still needs its frame so the agent can see what was marked.
+    timestamp: c.general && !c.drawing ? null : +c.timestamp.toFixed(3),
+    timecode: c.general ? (c.drawing ? `Whole video (drawing at ${fmt(c.timestamp)})` : 'Whole video') : fmt(c.timestamp),
+    frame: c.general && !c.drawing ? null : Math.round(c.timestamp * v.fps),
     text: c.text,
     transcript: c.transcript,
     has_voice_note: !!c.audio,
@@ -496,7 +600,7 @@ export function getRevisions(videoId: string, opts: { status?: 'open' | 'resolve
   const video = getVideo(videoId);
   const status = opts.status || 'open';
   const rows = (db.prepare(`SELECT c.* FROM comments c LEFT JOIN rounds r ON r.id = c.round_id
-    WHERE c.video_id = ? AND c.parent_id IS NULL ORDER BY c.timestamp, c.created_at`).all(videoId) as any[]).map(rowToComment);
+    WHERE c.video_id = ? AND c.parent_id IS NULL ORDER BY c.general DESC, c.timestamp, c.created_at`).all(videoId) as any[]).map(rowToComment);
   const rounds = new Map((db.prepare('SELECT * FROM rounds WHERE video_id = ?').all(videoId) as Round[]).map((r) => [r.id, r]));
   const versions = versionsOf(videoId);
   const verById = new Map(versions.map((v) => [v.id, v]));
@@ -529,10 +633,12 @@ export function agentMessage(videoId: string, opts: { roundId?: string; includeD
   lines.push(`# Revisions for "${video.title}"`);
   lines.push('');
   lines.push(`Video: \`${video.latest_file}\` (latest is v${video.latest_version}, video_id \`${video.id}\`)`);
-  lines.push(`Reviewed in Bottle. ${revisions.length} open revision${revisions.length === 1 ? '' : 's'}:`);
+  lines.push(`Reviewed in Portal. ${revisions.length} open revision${revisions.length === 1 ? '' : 's'}:`);
   lines.push('');
   revisions.forEach((r, i) => {
-    lines.push(`${i + 1}. **[${r.timecode}]** (v${r.version}, frame ${r.frame}) — id \`${r.id}\``);
+    lines.push(r.frame === null
+      ? `${i + 1}. **[${r.timecode}]** (v${r.version}, applies to the whole video) — id \`${r.id}\``
+      : `${i + 1}. **[${r.timecode}]** (v${r.version}, frame ${r.frame}) — id \`${r.id}\``);
     if (r.text) lines.push(`   - Note: ${r.text.replace(/\n/g, '\n     ')}`);
     if (r.transcript) lines.push(`   - Voice note (transcript): "${r.transcript}"`);
     else if (r.has_voice_note) lines.push('   - Voice note recorded (no transcript available).');
@@ -541,7 +647,7 @@ export function agentMessage(videoId: string, opts: { roundId?: string; includeD
   });
   lines.push('');
   lines.push('How to work on these:');
-  lines.push(`- If you have the Bottle MCP tools: \`get_revisions("${video.id}")\`, then \`get_frame("${video.id}", <timestamp>)\` to see each frame with the drawing burned in.`);
+  lines.push(`- If you have the Portal MCP tools: \`get_revisions("${video.id}")\`, then \`get_frame("${video.id}", <timestamp>)\` to see each frame with the drawing burned in.`);
   lines.push('- Fix the video, render a new file, then `add_video(<new path>)` — it becomes the next version automatically.');
   lines.push('- Reply with `reply_to_revision(id, text)` and close items with `resolve_revision(id, note)`.');
   return lines.join('\n');
@@ -573,4 +679,64 @@ export async function frameWithDrawings(opts: { videoId?: string; versionId?: st
   const frame = await frameRGBA(version.path, t, { width: version.width, height: version.height }, opts.maxWidth ?? 1280);
   if (shapes.length) burnShapes(frame, shapes);
   return { png: encodePNG(frame), version, timestamp: t, width: frame.width, height: frame.height, drawingsFrom: used.map((c) => c.id) };
+}
+
+// ---------------- projects ----------------
+/** Every top-level folder as a project, with what's in it. Used by the agent's list_projects. */
+export function listProjects(status?: ProjectStatus) {
+  const folders = listFolders();
+  const videos = listVideos();
+  const lastAct = db.prepare('SELECT text, created_at FROM activity WHERE folder_id = ? ORDER BY created_at DESC LIMIT 1');
+  return folders.filter((f) => !f.parent_id && (!status || f.status === status)).map((f) => {
+    const inside = new Set([f.id, ...folders.filter((c) => c.parent_id === f.id).map((c) => c.id)]);
+    const vids = videos.filter((v) => v.folder_id && inside.has(v.folder_id));
+    const last = lastAct.get(f.id) as { text: string; created_at: number } | undefined;
+    return {
+      project_id: f.id,
+      name: f.name,
+      status: f.status,
+      status_label: STATUS_LABEL[f.status],
+      in_status_since: f.status_at ? new Date(f.status_at).toISOString() : null,
+      notes: f.notes,
+      links: f.links,
+      needs_cleanup: f.status === 'done' && !f.cleaned_at,
+      cleaned_at: f.cleaned_at ? new Date(f.cleaned_at).toISOString() : null,
+      old_versions_removed_after: f.status === 'done' && f.status_at ? new Date(f.status_at + DONE_PRUNE_DAYS * 86_400_000).toISOString() : null,
+      subfolders: folders.filter((c) => c.parent_id === f.id).map((c) => c.name),
+      videos: vids.map((v) => ({ video_id: v.id, title: v.title, latest_version: v.latest?.number ?? null, open_revisions_sent: v.open_count, unsent_drafts: v.draft_count })),
+      last_activity: last ? { text: last.text, at: new Date(last.created_at).toISOString() } : null,
+    };
+  });
+}
+/** Accepts a project id or name; must be a top-level folder. */
+export function resolveProject(idOrName: string): Folder {
+  const id = resolveFolder(idOrName);
+  const f = getFolder(id);
+  if (f.parent_id) throw new UserError(`“${f.name}” is a folder inside “${getFolder(f.parent_id).name}”, not a project.`);
+  return f;
+}
+
+/**
+ * Projects that have sat in Done for DONE_PRUNE_DAYS keep only each video's latest version in
+ * Portal. Older versions (and the comments on them) are dropped from the library; the files on
+ * disk are never touched. Returns how many versions were removed.
+ */
+export function pruneDoneProjects(days = DONE_PRUNE_DAYS): number {
+  const cutoff = now() - days * 86_400_000;
+  const folders = listFolders();
+  let total = 0;
+  for (const p of folders.filter((f) => !f.parent_id && f.status === 'done' && f.status_at && f.status_at < cutoff)) {
+    const ids = [p.id, ...folders.filter((c) => c.parent_id === p.id).map((c) => c.id)];
+    const marks = ids.map(() => '?').join(',');
+    const old = db.prepare(`SELECT ve.id FROM versions ve JOIN videos vi ON vi.id = ve.video_id
+      WHERE vi.removed_at IS NULL AND vi.folder_id IN (${marks})
+      AND ve.number < (SELECT MAX(number) FROM versions WHERE video_id = ve.video_id)`).all(...ids) as { id: string }[];
+    if (!old.length) continue;
+    db.transaction(() => { for (const o of old) db.prepare('DELETE FROM versions WHERE id = ?').run(o.id); })();
+    total += old.length;
+    const prev = ACTOR; ACTOR = 'portal';
+    logActivity('versions_cleared', `${old.length} old version${old.length === 1 ? '' : 's'} cleared from “${p.name}” after ${days} days in Done (files on disk kept)`, { folder_id: p.id });
+    ACTOR = prev;
+  }
+  return total;
 }

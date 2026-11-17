@@ -1,17 +1,20 @@
 import { create } from 'zustand';
-import type { Comment, Folder, Settings, Shape, Tool, VideoDetail, VideoSummary } from '../../../server/types';
+import type { Activity, Comment, Folder, Settings, Shape, Tool, VideoDetail, VideoSummary, Workspace } from '../../../server/types';
 import { api } from './api';
+import { CLOUD, chooseVideoFile, uploadVideo, workspacesApi, type Me } from './cloud';
 import type { Recording } from './recorder';
 
 export interface Toast { id: number; text: string; sub?: string; tone?: 'default' | 'accent' | 'error'; action?: { label: string; run: () => void }; ms?: number }
 
-export type Route = { name: 'library'; folder?: string } | { name: 'review'; id: string; v?: number };
+export type Route = { name: 'library'; folder?: string; ws?: string } | { name: 'review'; id: string; v?: number } | { name: 'projects'; ws?: string };
 
 /** A pending "Remove from library" confirmation. */
 export interface RemoveAsk { ids: string[]; after?: () => void }
 
 export interface Draft {
   t: number;
+  /** About the whole video rather than the moment at `t`. */
+  general: boolean;
   text: string;
   shapes: Shape[];
   transcript: string;
@@ -20,12 +23,18 @@ export interface Draft {
   audio: Recording | null;
 }
 
-const emptyDraft = (t = 0): Draft => ({ t, text: '', shapes: [], transcript: '', interim: '', recording: false, audio: null });
+const emptyDraft = (t = 0): Draft => ({ t, general: false, text: '', shapes: [], transcript: '', interim: '', recording: false, audio: null });
 
 interface State {
   route: Route;
   videos: VideoSummary[];
   folders: Folder[];
+  activity: Activity[];
+  /** Online: who is signed in, and the client workspaces they can see. */
+  me: Me | null;
+  workspaces: Workspace[];
+  unread: number;
+  activitySeenAt: number;
   removeAsk: RemoveAsk | null;
   videosLoaded: boolean;
   detail: VideoDetail | null;
@@ -52,10 +61,13 @@ interface State {
   float: { x: number; y: number; drawing: boolean } | null;
   rate: number;
   /** Add video is waiting on the native file picker ('finder') or on the server adding the file ('adding'). */
-  picking: null | 'finder' | 'adding';
+  picking: null | 'finder' | 'adding' | 'uploading';
+  /** Online: upload progress 0..1 and the file's name while a video uploads. */
+  upload: { name: string; pct: number } | null;
 
   go(r: Route): void;
   loadVideos(): Promise<void>;
+  loadActivity(): Promise<void>;
   loadDetail(id: string): Promise<void>;
   toast(t: Omit<Toast, 'id'>): void;
   dismiss(id: number): void;
@@ -72,6 +84,11 @@ export const useStore = create<State>((set, get) => ({
   route: parseHash(),
   videos: [],
   folders: [],
+  activity: [],
+  me: null,
+  workspaces: [],
+  unread: 0,
+  activitySeenAt: 0,
   removeAsk: null,
   videosLoaded: false,
   detail: null,
@@ -91,21 +108,25 @@ export const useStore = create<State>((set, get) => ({
   playing: false,
   autoplay: false,
   muted: false,
-  volume: (() => { try { const v = Number(localStorage.getItem('bottle.volume')); return v >= 0 && v <= 1 && localStorage.getItem('bottle.volume') !== null ? v : 1; } catch { return 1; } })(),
+  volume: (() => { try { const v = Number(localStorage.getItem('portal.volume')); return v >= 0 && v <= 1 && localStorage.getItem('portal.volume') !== null ? v : 1; } catch { return 1; } })(),
   float: null,
   rate: 1,
   picking: null,
+  upload: null,
 
   go(r) {
-    const hash = r.name === 'library' ? (r.folder ? `#/f/${r.folder}` : '#/') : `#/v/${r.id}${r.v ? `/${r.v}` : ''}`;
+    const hash = r.name === 'projects' ? (r.ws ? `#/projects/${r.ws}` : '#/projects') : r.name === 'library' ? (r.folder ? `#/f/${r.folder}` : r.ws ? `#/w/${r.ws}` : '#/') : `#/v/${r.id}${r.v ? `/${r.v}` : ''}`;
     if (location.hash !== hash) history.pushState(null, '', hash);
     set({ route: r });
   },
   async loadVideos() {
     try {
-      const [videos, folders] = await Promise.all([api.videos(), api.folders()]);
-      set({ videos, folders, videosLoaded: true });
+      const [videos, folders, workspaces] = await Promise.all([api.videos(), api.folders(), CLOUD ? workspacesApi.list().catch(() => get().workspaces) : Promise.resolve([])]);
+      set({ videos, folders, workspaces, videosLoaded: true });
     } catch { set({ videosLoaded: true }); }
+  },
+  async loadActivity() {
+    try { const a = await api.activity(); set({ activity: a.items, unread: a.unread, activitySeenAt: a.seen_at }); } catch { /* offline */ }
   },
   async loadDetail(id) {
     try {
@@ -154,6 +175,10 @@ export const useStore = create<State>((set, get) => ({
 export function parseHash(): Route {
   const m = /^#\/v\/([a-z0-9_]+)(?:\/(\d+))?/i.exec(location.hash);
   if (m) return { name: 'review', id: m[1], v: m[2] ? Number(m[2]) : undefined };
+  const pr = /^#\/projects(?:\/([a-z0-9_]+))?/i.exec(location.hash);
+  if (pr) return { name: 'projects', ws: pr[1] };
+  const w = /^#\/w\/([a-z0-9_]+)/i.exec(location.hash);
+  if (w) return { name: 'library', ws: w[1] };
   const f = /^#\/f\/([a-z0-9_]+)/i.exec(location.hash);
   return f ? { name: 'library', folder: f[1] } : { name: 'library' };
 }
@@ -162,6 +187,7 @@ export function parseHash(): Route {
 export async function addVideo(videoId?: string) {
   const s = useStore.getState();
   if (s.picking) return; // Finder is already on its way; a second click must not open a second picker
+  if (CLOUD) return uploadFrom(await chooseVideoFile(), videoId);
   // Adding from inside a folder files the video there.
   const folderId = s.route.name === 'library' ? s.route.folder ?? null : null;
   // The picker can take seconds to appear. Show it is coming right away, and switch to
@@ -185,6 +211,25 @@ export async function addVideo(videoId?: string) {
     window.removeEventListener('focus', onFocus);
     delete document.documentElement.dataset.busy;
     useStore.getState().set({ picking: null });
+  }
+}
+
+/** Online: upload a file the person picked or dropped, then open it. */
+export async function uploadFrom(file: File | null, videoId?: string) {
+  const s = useStore.getState();
+  if (!file || s.picking) return;
+  const folderId = s.route.name === 'library' ? s.route.folder ?? null : null;
+  s.set({ picking: 'uploading', upload: { name: file.name, pct: 0 } });
+  const leave = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+  window.addEventListener('beforeunload', leave);
+  try {
+    const r = await uploadVideo(file, { videoId, folderId }, (pct) => useStore.getState().set({ upload: { name: file.name, pct } }));
+    afterAdd(r);
+  } catch (e: any) {
+    s.toast({ text: 'Upload failed', sub: e.message, tone: 'error' });
+  } finally {
+    window.removeEventListener('beforeunload', leave);
+    useStore.getState().set({ picking: null, upload: null });
   }
 }
 
@@ -224,9 +269,13 @@ export async function removeFromLibrary(ids: string[]) {
   if (s.route.name === 'review' && gone.has(s.route.id)) s.go({ name: 'library' });
   s.toast({
     text: ids.length === 1 ? 'Removed from your library' : `Removed ${ids.length} videos from your library`,
-    sub: 'The files on your disk are untouched.',
+    sub: CLOUD ? 'Undo now to keep them. After that the uploads are deleted.' : 'The files on your disk are untouched.',
     ms: 8000,
     action: { label: 'Undo', run: async () => { await api.restoreVideos(ids); useStore.getState().loadVideos(); } },
   });
   s.loadVideos();
 }
+
+/** Online clients see their workspace but can't rename, move or delete anything. */
+export const useIsClient = () => useStore((s) => s.me?.role === 'client');
+export const isClient = () => useStore.getState().me?.role === 'client';

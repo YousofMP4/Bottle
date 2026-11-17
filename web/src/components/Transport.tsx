@@ -9,6 +9,9 @@ import { spring } from '../lib/motion';
 import { IChevronLeft, IChevronRight, IExpand, IPause, IPlay, IPlus } from './Icons';
 import { Popover } from './Popover';
 import { tip } from './Tooltip';
+import { retimeComment } from '../lib/comments';
+import { CLOUD, downloadVersion } from '../lib/cloud';
+import { IDownload } from './Icons';
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -189,6 +192,7 @@ function VersionChip({ version, versions, wide }: { version: Version; versions: 
             );
           })}
           <div className="menu-sep" />
+          {CLOUD && <button className="menu-item" onClick={() => { close(); downloadVersion(version.id); }}><IDownload size={15} /> <span>Download v{version.number}</span></button>}
           <button className="menu-item" onClick={() => { close(); addVideo(version.video_id); }}>
             <IPlus size={15} /> <span>Add new version…</span>
           </button>
@@ -265,14 +269,15 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
     player.play();
   };
 
-  const roots = comments.filter((c) => !c.parent_id && c.version_id === version.id);
+  // Whole-video comments have no moment, so they don't get a marker on the timeline.
+  const roots = comments.filter((c) => !c.parent_id && !c.general && c.version_id === version.id);
 
   return (
     <div className={`timeline ${scrubbing ? 'scrubbing' : ''}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp} onPointerLeave={() => !dragging.current && setHover(null)}>
       <div className="lane" aria-label="Comment lane: click to comment at a moment">
         <AnimatePresence>
           {roots.map((c) => (
-            <Marker key={c.id} c={c} left={(c.timestamp / dur) * 100} selected={c.id === selectedId} />
+            <Marker key={c.id} c={c} left={(c.timestamp / dur) * 100} selected={c.id === selectedId} tAt={tAt} dur={dur} />
           ))}
         </AnimatePresence>
         <AnimatePresence>
@@ -298,29 +303,71 @@ function Timeline({ version, comments, onComposeAt }: { version: Version; commen
   );
 }
 
-function Marker({ c, left, selected }: { c: Comment; left: number; selected: boolean }) {
+function Marker({ c, left, selected, tAt, dur }: { c: Comment; left: number; selected: boolean; tAt: (clientX: number) => { x: number; t: number }; dur: number }) {
   const set = useStore((s) => s.set);
   const [hov, setHov] = useState(false);
+  // Dragging a marker along the lane moves the comment to a new time; a plain click still jumps to it.
+  const [dragT, setDragT] = useState<number | null>(null);
+  const drag = useRef<{ x: number; moved: boolean; t: number } | null>(null);
   const preview = c.text || c.transcript || (c.drawing ? 'Drawing' : c.audio ? 'Voice note' : '');
+  const shownT = dragT ?? c.timestamp;
+  const onDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    drag.current = { x: e.clientX, moved: false, t: c.timestamp };
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    e.stopPropagation();
+    if (!d.moved && Math.abs(e.clientX - d.x) < 4) return;
+    if (!d.moved) { d.moved = true; player.pause(); document.documentElement.dataset.dragCursor = 'grabbing'; }
+    d.t = tAt(e.clientX).t;
+    setDragT(d.t);
+    player.scrubTo(d.t); // show the frame it will land on
+  };
+  const onUp = (e: React.PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    e.stopPropagation();
+    if (!d.moved) { player.pause(); player.seek(c.timestamp); set({ selectedId: c.id, panelOpen: true }); return; }
+    delete document.documentElement.dataset.dragCursor;
+    player.endScrub(d.t);
+    set({ selectedId: c.id });
+    retimeComment(c, d.t).finally(() => setDragT(null));
+  };
+  const onCancel = () => {
+    if (!drag.current) return;
+    drag.current = null; setDragT(null);
+    delete document.documentElement.dataset.dragCursor;
+    player.endScrub(c.timestamp);
+  };
   return (
     <motion.button
-      className={`marker ${c.status} ${selected ? 'selected' : ''} ${c.audio ? 'voice' : ''}`}
-      style={{ left: `${left}%` }}
+      className={`marker ${c.status} ${selected ? 'selected' : ''} ${c.audio ? 'voice' : ''} ${dragT !== null ? 'dragging' : ''}`}
+      style={{ left: `${dragT !== null ? (dragT / dur) * 100 : left}%` }}
       initial={{ scale: 0, y: 6 }}
-      animate={{ scale: selected ? 1.25 : 1, y: 0 }}
+      animate={{ scale: selected || dragT !== null ? 1.25 : 1, y: 0 }}
       exit={{ scale: 0, opacity: 0, transition: { duration: 0.15 } }}
       whileHover={{ scale: 1.35 }}
       transition={spring.pop}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      onClick={(e) => { e.stopPropagation(); player.pause(); player.seek(c.timestamp); set({ selectedId: c.id, panelOpen: true }); }}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onCancel}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); player.pause(); player.seek(c.timestamp); set({ selectedId: c.id, panelOpen: true }); } }}
       aria-label={`Comment at ${tc(c.timestamp)}: ${preview}`}
     >
       <span className="marker-dot">{c.author.charAt(0)}</span>
       <AnimatePresence>
-        {hov && (
+        {(hov || dragT !== null) && (
           <motion.span className="marker-tip" initial={{ opacity: 0, y: 4, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 2 }} transition={spring.toast}>
-            <b>{c.author}</b> <span className="mono dim">{tc(c.timestamp, true)}</span>
+            <b>{c.author}</b> <span className="mono dim">{tc(shownT, true)}</span>
             <span className="marker-tip-text">{preview.slice(0, 90)}</span>
           </motion.span>
         )}

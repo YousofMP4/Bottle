@@ -12,7 +12,7 @@ export const whisperCpp: ServerTranscriber = {
     return !!s.whisper_bin && !!s.whisper_model && fs.existsSync(s.whisper_bin) && fs.existsSync(s.whisper_model);
   },
   async transcribe(audioFile, s) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bottle-whisper-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-whisper-'));
     try {
       const wav = path.join(tmp, 'note.wav');
       await toWav16k(audioFile, wav);

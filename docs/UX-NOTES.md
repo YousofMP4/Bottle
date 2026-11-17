@@ -4,7 +4,7 @@ Studied on 2026-11-15 in a real browser, signed in to a Flask workspace, plus th
 landing page. Everything below was **measured** from computed styles and Flask's shipped stylesheet unless it
 says "observed". We copy the *feel*: timings, easing, densities, state logic. Never Flask's name, logo, colors
 of its brand, icons, copy or assets. No Flask screenshots are committed (they contain Flask branding and a
-real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
+real workspace); see `docs/screenshots/` for Portal's own before/after shots.
 
 ## 1. Design tokens (measured)
 
@@ -70,9 +70,9 @@ real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
 - Opening a video from the library does **not** autoplay in Flask; it opens paused at 0:00.
 - Typing a letter while the page has focus starts a comment (type-to-comment).
 
-## 5. What Bottle takes from this
+## 5. What Portal takes from this
 
-| Area | Bottle change |
+| Area | Portal change |
 |---|---|
 | Ease | `--ease-out: cubic-bezier(.23,1,.32,1)` everywhere; hovers 150ms; no 300ms+ hover fades |
 | Controls | raised pill buttons: fill + 0.5px inset ring + top sheen + tiny drop shadow; icon at 70% → 95% on hover; pointer-following light on pills |
@@ -81,9 +81,9 @@ real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
 | Focus | ring only for keyboard users, follows the control's own radius |
 | Toasts | top-center, optional subtitle, overshoot spring (0.45s feel), icon per tone |
 | Empty states | short, specific, one action; no decorative noise |
-| Autoplay | Bottle *does* autoplay when you click a video (user request), muted fallback if the browser blocks sound |
+| Autoplay | Portal *does* autoplay when you click a video (user request), muted fallback if the browser blocks sound |
 
-## 6. Bottle motion spec (after this pass)
+## 6. Portal motion spec (after this pass)
 
 | Thing | Motion |
 |---|---|
@@ -106,7 +106,7 @@ real workspace); see `docs/screenshots/` for Bottle's own before/after shots.
 - Shadow thrown down-left (light from top-right): `-1px 1px 3px` and `-5px 6px 18px -2px`, black @ .65.
 - The track is 20px tall for hit-testing and keeps the **default** arrow cursor. The volume slider thumb
   (12px, flat white) uses `grab`.
-- Releasing a drag on a paused video **stays paused** in Flask. (Bottle resumes on release: requested.)
+- Releasing a drag on a paused video **stays paused** in Flask. (Portal resumes on release: requested.)
 
 **Cursor logic**:
 - Draw armed: `html[data-draw-armed] * { cursor: var(--draw-armed-cursor) !important }`. The cursor is a 40×40 SVG
@@ -124,18 +124,18 @@ centered above the transport with a mode button (dot-matrix glyph + label + chev
 **Composer after drawing** (observed): choosing the pencil reveals a row of colored crayons above the composer;
 the composer expands into a card with the pencil, `+` and send.
 
-### Bottle's take
+### Portal's take
 - Our own knob (not Flask's values verbatim): a knurled conic texture with 24 ridges + a soft specular dot,
   16px, grows to 18px on hover, presses in (inset shadow, scale .94) while dragging.
 - Our own pen-nib SVG cursor tinted with the active ink color, hotspot at the nib, crosshair fallback.
 - Same global-drag-cursor trick, `grab` on the track, `grabbing` everywhere during a scrub.
 - Mechanical press: 80ms sink of 1–2px with a tightened shadow; optional WebAudio click (Settings, off by default).
 
-### Where Bottle deliberately differs (round 2)
+### Where Portal deliberately differs (round 2)
 - **Scrub-to-play:** releasing a click or drag on the timeline plays (Flask stays paused). Arrow-key frame stepping
   never plays.
 - **Library cards keep a pointer cursor**, because a click plays the video; the `move` cursor takes over the whole
   page the moment a drag starts (5px threshold), with a ghost and drop highlights.
 - **Timeline cursor is `grab`/`grabbing`** (Flask keeps the arrow) so the knob reads as something you can hold.
 - **Speed is a −/+ stepper** around the readout (Flask's −/+ zoom the timeline); the readout still opens presets.
-- **Light comes from the top-left** on Bottle's metal (shadows fall down-right); Flask's falls down-left.
+- **Light comes from the top-left** on Portal's metal (shadows fall down-right); Flask's falls down-left.

@@ -1,10 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { useStore, parseHash, addVideo } from './lib/store';
+import { useStore, parseHash, addVideo, uploadFrom } from './lib/store';
 import { api } from './lib/api';
 import { Sidebar } from './components/Sidebar';
 import { Library } from './components/Library';
 import { Review } from './components/Review';
+import { Projects } from './components/Projects';
+import { SignIn, Join } from './components/SignIn';
+import { CLOUD, auth } from './lib/cloud';
+
 import { Toasts } from './components/Toasts';
 import { SettingsDialog } from './components/Settings';
 import { ShortcutsDialog } from './components/Shortcuts';
@@ -15,12 +19,31 @@ import { RemoveDialog } from './components/RemoveDialog';
 import { view } from './lib/motion';
 import { click, CLICKY, SOFT } from './lib/sfx';
 
+/** Online, Portal sits behind a sign-in; on this Mac it opens straight away. */
 export function App() {
+  const [gate, setGate] = useState<'checking' | 'in' | 'login' | 'setup'>(CLOUD ? 'checking' : 'in');
+  const check = () => auth.state().then((a) => { useStore.setState({ me: a.user }); setGate(a.user ? 'in' : a.setup_needed ? 'setup' : 'login'); }).catch(() => setGate('login'));
+  useEffect(() => {
+    if (!CLOUD) return;
+    check();
+    const out = () => setGate('login');
+    window.addEventListener('portal:signed-out', out);
+    return () => window.removeEventListener('portal:signed-out', out);
+  }, []);
+  const joinToken = CLOUD ? /^\/join\/(inv_[a-f0-9]+)/.exec(location.pathname)?.[1] : undefined;
+  if (joinToken) return <Join token={joinToken} />;
+  if (gate === 'checking') return <div className="signin" />;
+  if (gate !== 'in') return <SignIn mode={gate} onDone={check} />;
+  return <Workspace />;
+}
+
+function Workspace() {
   const route = useStore((s) => s.route);
 
   useEffect(() => {
     const s = useStore.getState();
     s.loadVideos();
+    s.loadActivity();
     api.settings().then((settings) => s.set({ settings })).catch(() => {});
     api.platform().then((platform) => s.set({ platform })).catch(() => {});
     const onPop = () => useStore.setState({ route: parseHash() });
@@ -37,6 +60,7 @@ export function App() {
         t = window.setTimeout(() => {
           const st = useStore.getState();
           st.loadVideos();
+          st.loadActivity();
           if (st.route.name === 'review') st.loadDetail(st.route.id);
           if (data.what === 'settings') api.settings().then((settings) => st.set({ settings }));
         }, 60);
@@ -68,7 +92,18 @@ export function App() {
       click(el.matches(SOFT));
     };
     window.addEventListener('pointerdown', onPress, true);
-    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerdown', onPress, true); es?.close(); };
+    // Online: drop a video file anywhere to upload it.
+    const onDragOver = (e: DragEvent) => { if (CLOUD && e.dataTransfer?.types.includes('Files')) e.preventDefault(); };
+    const onDrop = (e: DragEvent) => {
+      const f = e.dataTransfer?.files?.[0];
+      if (!CLOUD || !f) return;
+      e.preventDefault();
+      if (!/^video\//.test(f.type) && !/\.(mov|mp4|m4v|webm|mkv)$/i.test(f.name)) { useStore.getState().toast({ text: 'That isn’t a video file', tone: 'error' }); return; }
+      uploadFrom(f);
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('keydown', onKey); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerdown', onPress, true); window.removeEventListener('dragover', onDragOver); window.removeEventListener('drop', onDrop); es?.close(); };
   }, []);
 
   return (
@@ -77,8 +112,10 @@ export function App() {
         <Sidebar />
         <main className="main">
           <AnimatePresence mode="wait" initial={false}>
-            {route.name === 'library' ? (
-              <motion.div key={`library-${route.folder ?? ''}`} className="view" {...view}><Library /></motion.div>
+            {route.name === 'projects' ? (
+              <motion.div key={`projects-${route.ws ?? ''}`} className="view" {...view}><Projects /></motion.div>
+            ) : route.name === 'library' ? (
+              <motion.div key={`library-${route.folder ?? ''}-${route.ws ?? ''}`} className="view" {...view}><Library /></motion.div>
             ) : (
               <motion.div key={`review-${route.id}`} className="view" {...view}><Review id={route.id} /></motion.div>
             )}

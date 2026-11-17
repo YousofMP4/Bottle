@@ -1,41 +1,41 @@
-<p align="center"><img src="docs/brand/tile.svg" alt="Bottle" width="120"></p>
+<p align="center"><img src="docs/brand/portal-wordmark.svg" alt="Portal" width="260"></p>
 
-<p align="center"><img src="docs/screenshots/review.png" alt="Bottle reviewing a video, with a drawing on the frame and comments on the right" width="900"></p>
+<p align="center"><img src="docs/screenshots/review.png" alt="Portal reviewing a video, with a drawing on the frame and comments on the right" width="900"></p>
 
-# Bottle
+# Portal
 
 **Review a video. Hand the notes to your AI agent.**
 
-Bottle is a video review app that runs on your own Mac. You watch a cut that an AI agent or an editor made, then
+Portal is a video review app that runs on your own Mac. You watch a cut that an AI agent or an editor made, then
 draw on frames, pin comments to exact moments, and talk through voice notes. When you press **Send to agent**, your
 agent (for example Claude) reads every note, sees exactly what you circled, and makes the next version.
 
-Nothing is uploaded. Bottle plays your video straight from where it sits on your disk.
+Nothing is uploaded. Portal plays your video straight from where it sits on your disk.
 
 ---
 
 ## Get started in 3 steps
 
-### 1. Download Bottle
-Click the green **Code** button on this page, then **Download ZIP**. Open the zip file. You'll get a `Bottle` folder,
+### 1. Download Portal
+Click the green **Code** button on this page, then **Download ZIP**. Open the zip file. You'll get a `Portal` folder,
 which you can put anywhere you like (Documents works).
 
 ### 2. Double-click `Start.command`
-<img src="docs/screenshots/start.png" alt="The Bottle folder with Start.command" width="520">
+<img src="docs/screenshots/start.png" alt="The Portal folder with Start.command" width="520">
 
 - **The first time**, macOS may say it's from an unidentified developer. **Right-click** `Start.command`, choose
   **Open**, then click **Open** again. You only need to do this once.
-- If you don't have Node.js yet, Bottle offers to install it for you. Click **Install Node.js** and click
+- If you don't have Node.js yet, Portal offers to install it for you. Click **Install Node.js** and click
   **Continue** through the standard installer.
 - The first start takes about a minute while it sets up. After that it's instant.
 
-Your browser opens Bottle. Keep the small Terminal window open while you review, and close it when you're done.
+Your browser opens Portal. Keep the small Terminal window open while you review, and close it when you're done.
 
 ### 3. Click **Add video**
-<img src="docs/screenshots/empty.png" alt="Bottle's welcome screen with the Add video button" width="720">
+<img src="docs/screenshots/empty.png" alt="Portal's welcome screen with the Add video button" width="720">
 
 Pick any video in the Mac file picker. It's added to your library and starts playing. That's it.
-Bottle keeps a reference to the file where it is (nothing is copied), so it's in your library next time too.
+Portal keeps a reference to the file where it is (nothing is copied), so it's in your library next time too.
 
 ---
 
@@ -59,31 +59,31 @@ Bottle keeps a reference to the file where it is (nothing is copied), so it's in
   and drag cards to set your own order. Right-click anything for Rename, Move to…, Show in Finder and Copy path.
 - **Select several:** <kbd>⌘</kbd>-click or <kbd>⇧</kbd>-click, <kbd>⌘</kbd><kbd>A</kbd> for all, <kbd>⌫</kbd> to remove.
 - **Search and sort:** <kbd>/</kbd> searches every folder. Sort by recent, your order, name, length or notes; grid or list.
-- **Remove from library never deletes your file.** It only forgets Bottle's reference and the comments on it,
+- **Remove from library never deletes your file.** It only forgets Portal's reference and the comments on it,
   asks first, and can be undone for 8 seconds.
 
-- **Versions:** when your agent saves a new cut (for example `promo_v2.mp4`), Bottle adds it as **v2** of the same
+- **Versions:** when your agent saves a new cut (for example `promo_v2.mp4`), Portal adds it as **v2** of the same
   video. Switch versions from the `v2` chip next to the play button. Each version keeps its own comments.
 - **Rounds:** comments stay "Unsent" until you press **Send to agent**. Then they go out together as one round.
-- **Your files are safe:** Bottle never copies, moves, changes or re-encodes a video. "Remove from library" only
+- **Your files are safe:** Portal never copies, moves, changes or re-encodes a video. "Remove from library" only
   removes it from the list.
 
 ## Connect your agent
 
-Open **Settings** (bottom-left) → **Connect to Claude**. Bottle shows the exact snippet with your paths filled in:
+Open **Settings** (bottom-left) → **Connect to Claude**. Portal shows the exact snippet with your paths filled in:
 
 - **Claude Code:** copy the one-line command and run it once in Terminal.
 - **Claude Desktop:** paste the JSON into the config file it names, then restart Claude Desktop.
 
 <img src="docs/screenshots/settings.png" alt="Settings showing the Connect to Claude snippet" width="640">
 
-Then ask your agent something like *"Wait for my Bottle revisions on the promo video and fix them."*
+Then ask your agent something like *"Wait for my Portal revisions on the promo video and fix them."*
 
 When you send a round, your agent can hear about it in up to four ways, set in **Settings**:
 
 1. **`wait_for_revisions`**: the agent waits and wakes up the moment you press Send.
 2. **`revisions.md`**: a plain-text summary is written next to your video file.
-3. **Webhook**: Bottle POSTs the revisions as JSON to a URL you choose.
+3. **Webhook**: Portal POSTs the revisions as JSON to a URL you choose.
 4. **Copy message for my agent**: the copy button at the top of the review screen gives you a ready-to-paste message.
 
 ### Tools your agent gets (MCP)
@@ -114,7 +114,7 @@ When you send a round, your agent can hear about it in up to four ways, set in *
 - **ffmpeg** comes bundled (`ffmpeg-static`). It's only used to read video info, make poster frames, and render
   frames for `get_frame`.
 - **Windows/Linux:** everything that depends on the operating system lives in `server/platform/`. The Windows file
-  picker is scaffolded but untested. On Linux without `zenity`, Bottle asks you to paste a file path instead.
+  picker is scaffolded but untested. On Linux without `zenity`, Portal asks you to paste a file path instead.
 
 ### Developing
 

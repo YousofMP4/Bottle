@@ -3,7 +3,7 @@
 1. **One Node process** (`server/index.ts`, Fastify) bound to 127.0.0.1:4317 serves the built React app,
    a JSON API, an SSE event stream, and `/media/:versionId` which streams the original file with HTTP Range.
 2. **Videos are references**: a `versions` row stores the absolute path; nothing is copied or re-encoded.
-3. **SQLite** (`data/bottle.db`, better-sqlite3, WAL) holds videos → versions → comments (threaded,
+3. **SQLite** (`data/portal.db` (or `data/bottle.db` from before the rename), better-sqlite3, WAL) holds videos → versions → comments (threaded,
    with normalized vector drawings as JSON, transcript, audio file name) and rounds. Audio lives in `data/audio/`.
 4. **`server/core.ts`** is the single domain layer. Both the HTTP server and the MCP server import it,
    so they share one database file. The HTTP server watches `PRAGMA data_version` and pushes `changed`

@@ -12,6 +12,7 @@ import { spring } from '../lib/motion';
 import { DotWave, IArrowUp, IChevronDown, IPause, IPen, IPlay, IStop, IX } from './Icons';
 import { tip } from './Tooltip';
 import { showMenu } from './ContextMenu';
+import { CLOUD } from '../lib/cloud';
 
 /** Imperative handle so keyboard shortcuts and the timeline can drive the composer. */
 export const composer = {
@@ -43,8 +44,17 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
   const anchor = (t?: number) => {
     const st = useStore.getState();
     player.pause();
-    if (t !== undefined) { player.seek(t); if (st.draft) st.patchDraft({ t }); else st.startDraft(t); }
+    // Picking a moment on the timeline makes the comment time specific again.
+    if (t !== undefined) { player.seek(t); if (st.draft) st.patchDraft({ t, general: false }); else st.startDraft(t); }
     else st.startDraft(player.time);
+  };
+
+  /** The time chip switches the comment between "this frame" and "the whole video". */
+  const toggleGeneral = () => {
+    const st = useStore.getState();
+    if (!st.draft) { anchor(); st.patchDraft({ general: true }); }
+    else st.patchDraft({ general: !st.draft.general });
+    inputRef.current?.focus({ preventScroll: true });
   };
 
   const startRecording = async () => {
@@ -107,13 +117,13 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
     }
     setBusy(true);
     try {
-      let c = await api.createComment({ version_id: version.id, timestamp: d.t, text, transcript: d.transcript, drawing: d.shapes.length ? { shapes: d.shapes } : null });
+      let c = await api.createComment({ version_id: version.id, timestamp: d.t, general: d.general, text, transcript: d.transcript, drawing: d.shapes.length ? { shapes: d.shapes } : null });
       if (d.audio) c = await api.uploadAudio(c.id, d.audio.blob, d.audio.duration, d.audio.peaks);
       st.upsertComment(c);
       st.clearDraft();
       if (inputRef.current) { inputRef.current.style.height = ''; inputRef.current.blur(); }
       st.set({ selectedId: c.id });
-      st.toast({ text: `Comment pinned at ${tc(c.timestamp)}`, sub: 'It goes to your agent when you press Send to agent.', tone: 'accent' });
+      st.toast({ text: c.general ? 'Comment added for the whole video' : `Comment pinned at ${tc(c.timestamp)}`, sub: 'It goes to your editor when you press Send to editor.', tone: 'accent' });
       st.loadVideos();
     } catch (e: any) {
       st.toast({ text: e.message, tone: 'error' });
@@ -130,6 +140,7 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
 
   const recording = !!draft?.recording;
   const hasDraft = !!draft;
+  const general = !!draft?.general;
   const liveText = [draft?.transcript, draft?.interim].filter(Boolean).join(' ');
 
   return (
@@ -177,14 +188,19 @@ export function FeedbackBar({ version, width }: { version: Version; width: numbe
               { label: 'Draw on the frame', kbd: 'D', icon: <IPen size={13} />, run: () => { anchor(); useStore.getState().set({ tool: 'pen' }); } },
               { label: 'Type a note', kbd: 'C', run: () => composer.focus() },
               'sep',
-              { label: 'Transcribe voice notes', submenu: ([['browser', 'Live, in the browser'], ['whisper', 'whisper.cpp, on this Mac'], ['off', 'Off (audio only)']] as const).map(([id, label]) => ({ label, icon: <span className={`radio-mini ${tr === id ? 'on' : ''}`} />, run: () => setTr(id) })) },
+              { label: 'Transcribe voice notes', submenu: ([['browser', 'Live, in the browser'], ...(CLOUD ? [] : [['whisper', 'whisper.cpp, on this Mac'] as const]), ['off', 'Off (audio only)']] as const).map(([id, label]) => ({ label, icon: <span className={`radio-mini ${tr === id ? 'on' : ''}`} />, run: () => setTr(id) })) },
             ]);
           }}
         ><IChevronDown size={14} /></button>
 
         <div className="fb-input">
-          <button className={`time-chip mono ${hasDraft ? 'pinned' : ''}`} onClick={() => { if (draft) player.seek(draft.t); else anchor(); }} {...tip(hasDraft ? 'Pinned here · click to jump back' : 'Comment at this frame', hasDraft ? undefined : 'C')}>
-            {hasDraft ? tc(draft!.t, true) : <span ref={nowRef}>{tc(timeBus.get(), true)}</span>}
+          <button
+            className={`time-chip mono ${hasDraft ? 'pinned' : ''} ${general ? 'general' : ''}`}
+            onClick={toggleGeneral}
+            aria-pressed={general}
+            {...tip(general ? 'About the whole video · click to pin to this frame' : hasDraft ? `Pinned at ${tc(draft!.t, true)} · click to make it about the whole video` : 'Click to comment on the whole video')}
+          >
+            {general ? 'Whole video' : hasDraft ? tc(draft!.t, true) : <span ref={nowRef}>{tc(timeBus.get(), true)}</span>}
           </button>
           <textarea
             ref={inputRef}

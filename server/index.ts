@@ -5,6 +5,7 @@ import path from 'node:path';
 import { AUDIO_DIR, HOST, MCP_ENTRY, PORT, ROOT, WEB_DIR, DATA_DIR } from './paths.js';
 import * as core from './core.js';
 import { UserError } from './core.js';
+import type { ProjectStatus } from './types.js';
 import { poster } from './media.js';
 import { platform, PickerUnavailable } from './platform/index.js';
 import { sendRanged, mimeFor } from './stream.js';
@@ -27,23 +28,23 @@ app.setErrorHandler((err: any, _req, reply) => {
 // Only answer to the local machine, even if someone points a hostname at us (DNS rebinding guard).
 app.addHook('onRequest', async (req, reply) => {
   const host = (req.headers.host || '').split(':')[0];
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) return reply.code(403).send({ error: 'Bottle only serves this computer.' });
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) return reply.code(403).send({ error: 'Portal only serves this computer.' });
 });
 
 const changed = (what: string, data: Record<string, unknown> = {}) => broadcast('changed', { what, ...data });
 
 // ---------- videos ----------
-app.get('/api/health', async () => ({ ok: true, app: 'bottle' }));
+app.get('/api/health', async () => ({ ok: true, app: 'portal' }));
 app.get('/api/videos', async () => core.listVideos());
 app.get<{ Params: { id: string } }>('/api/videos/:id', async (req) => core.videoDetail(req.params.id));
 
 app.get('/api/folders', async () => core.listFolders());
-app.post<{ Body: { name: string; parent_id?: string | null } }>('/api/folders', async (req) => {
-  const f = core.createFolder(req.body.name, req.body.parent_id ?? null);
+app.post<{ Body: { name: string; parent_id?: string | null; status?: ProjectStatus } }>('/api/folders', async (req) => {
+  const f = core.createFolder(req.body.name, req.body.parent_id ?? null, { status: req.body.status });
   changed('videos');
   return f;
 });
-app.patch<{ Params: { id: string }; Body: { name?: string; parent_id?: string | null; position?: number } }>('/api/folders/:id', async (req) => {
+app.patch<{ Params: { id: string }; Body: core.FolderPatch }>('/api/folders/:id', async (req) => {
   const f = core.updateFolder(req.params.id, req.body);
   changed('videos');
   return f;
@@ -53,6 +54,14 @@ app.delete<{ Params: { id: string } }>('/api/folders/:id', async (req) => {
   changed('videos');
   return { ok: true };
 });
+// ---------- activity (notifications) ----------
+app.get<{ Querystring: { limit?: string } }>('/api/activity', async (req) => core.listActivity(Math.min(200, Number(req.query.limit) || 50)));
+app.post('/api/activity/seen', async () => {
+  core.markActivitySeen();
+  changed('activity');
+  return { ok: true };
+});
+
 app.post<{ Body: { ids: string[]; folder_id: string | null; before_id?: string | null } }>('/api/videos/move', async (req) => {
   const r = core.moveVideos(req.body.ids, req.body.folder_id, req.body.before_id);
   changed('videos');
@@ -146,8 +155,8 @@ app.post<{ Body: core.NewComment }>('/api/comments', async (req) => {
   return c;
 });
 app.patch<{ Params: { id: string }; Body: any }>('/api/comments/:id', async (req) => {
-  const { text, status, transcript, timestamp, drawing } = (req.body || {}) as any;
-  const c = core.updateComment(req.params.id, { text, status, transcript, timestamp, drawing });
+  const { text, status, transcript, timestamp, general, drawing } = (req.body || {}) as any;
+  const c = core.updateComment(req.params.id, { text, status, transcript, timestamp, general, drawing });
   changed('comments', { videoId: c.video_id });
   return c;
 });
@@ -209,8 +218,8 @@ app.put<{ Body: any }>('/api/settings', async (req) => {
 app.post<{ Body: { url: string } }>('/api/settings/test-webhook', async (req) => {
   try {
     const res = await fetch(req.body.url, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': 'Bottle' },
-      body: JSON.stringify({ event: 'bottle.test', message: 'Hello from Bottle 👋' }), signal: AbortSignal.timeout(6000),
+      method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': 'Portal' },
+      body: JSON.stringify({ event: 'portal.test', message: 'Hello from Portal 👋' }), signal: AbortSignal.timeout(6000),
     });
     return { ok: res.ok, status: res.status };
   } catch (e: any) {
@@ -221,14 +230,14 @@ app.post<{ Body: { url: string } }>('/api/settings/test-webhook', async (req) =>
 app.get('/api/connect', async () => {
   const node = process.execPath;
   const built = fs.existsSync(MCP_ENTRY);
-  const desktop = { mcpServers: { bottle: { command: node, args: [MCP_ENTRY] } } };
+  const desktop = { mcpServers: { portal: { command: node, args: [MCP_ENTRY] } } };
   return {
     built,
     node,
     entry: MCP_ENTRY,
     root: ROOT,
     dataDir: DATA_DIR,
-    claudeCode: `claude mcp add --scope user bottle -- "${node}" "${MCP_ENTRY}"`,
+    claudeCode: `claude mcp add --scope user portal -- "${node}" "${MCP_ENTRY}"`,
     claudeDesktop: JSON.stringify(desktop, null, 2),
     claudeDesktopPath: platform.claudeDesktopConfigPath(),
   };
@@ -241,7 +250,7 @@ app.get('/api/events', async (_req, reply: FastifyReply) => {
 
 // ---------- web app ----------
 if (fs.existsSync(WEB_DIR)) {
-  // wildcard (the default) looks files up on each request, so a rebuild while Bottle is running
+  // wildcard (the default) looks files up on each request, so a rebuild while Portal is running
   // (new hashed asset names) is served correctly instead of falling through to index.html.
   await app.register(fastifyStatic, { root: WEB_DIR });
   app.setNotFoundHandler((req, reply) => {
@@ -255,15 +264,19 @@ watchExternalWrites();
 // Removed references stay restorable for a while (the Undo toast lasts 8s), then the rows go.
 core.purgeRemoved(0);
 setInterval(() => { if (core.purgeRemoved(30_000)) changed('videos'); }, 10_000).unref();
+// Done projects: after a week, keep only the latest version of each video in Portal.
+const prune = () => { try { if (core.pruneDoneProjects()) changed('videos'); } catch (e) { console.error('prune failed', e); } };
+prune();
+setInterval(prune, 60 * 60_000).unref();
 
 try {
   await app.listen({ host: HOST, port: PORT });
   const url = `http://${HOST}:${PORT}`;
-  console.log(`\n  🍾  Bottle is running at ${url}\n      Data: ${DATA_DIR}\n      Leave this window open while you review. Close it to stop Bottle.\n`);
+  console.log(`\n  Portal is running at ${url}\n      Data: ${DATA_DIR}\n      Leave this window open while you review. Close it to stop Portal.\n`);
   if (process.argv.includes('--open')) platform.openUrl(url).catch(() => {});
 } catch (e: any) {
   if (e.code === 'EADDRINUSE') {
-    console.error(`\n  Port ${PORT} is busy — Bottle may already be running. Open http://${HOST}:${PORT}\n`);
+    console.error(`\n  Port ${PORT} is busy — Portal may already be running. Open http://${HOST}:${PORT}\n`);
     process.exit(2);
   }
   throw e;

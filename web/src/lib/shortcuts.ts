@@ -15,7 +15,7 @@ export const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
     [['R'], 'Start / stop a voice note'], [['↩'], 'Post comment'], [['Esc'], 'Cancel'],
   ] },
   { group: 'Review', items: [
-    [['[', ']'], 'Previous / next comment'], [['\\'], 'Toggle comments panel'], [['⌘↩'], 'Send revisions to agent'], [['⌘O'], 'Add video'], [['?'], 'Show shortcuts'],
+    [['[', ']'], 'Previous / next comment'], [['\\'], 'Toggle comments panel'], [['⌘↩'], 'Send revisions to editor'], [['⌘O'], 'Add video'], [['?'], 'Show shortcuts'],
   ] },
 ];
 
@@ -51,7 +51,7 @@ export function useReviewShortcuts() {
       const s = useStore.getState();
       if (s.dialog) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === 'Enter') { e.preventDefault(); (window as any).__bottleSend?.(); return; }
+      if (mod && e.key === 'Enter') { e.preventDefault(); (window as any).__portalSend?.(); return; }
       if (typing(e)) return;
       // Space plays/pauses even after clicking a button; Tab-focused controls keep Space/Enter.
       if (e.key === ' ' && !spaceForPlayback(e)) return;

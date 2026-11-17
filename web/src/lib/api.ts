@@ -1,4 +1,4 @@
-import type { Comment, Settings, VideoDetail, VideoSummary, Video, Version, Round, Drawing, Folder } from '../../../server/types';
+import type { Comment, Settings, VideoDetail, VideoSummary, Video, Version, Round, Drawing, Folder, Activity, ProjectStatus, ProjectLink } from '../../../server/types';
 
 async function req<T>(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const init: RequestInit = { method, headers: { ...headers } };
@@ -6,6 +6,7 @@ async function req<T>(method: string, url: string, body?: unknown, headers: Reco
   else if (body !== undefined) { init.body = JSON.stringify(body); (init.headers as any)['content-type'] = 'application/json'; }
   const res = await fetch(url, init);
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && url !== '/api/auth/state') window.dispatchEvent(new Event('portal:signed-out'));
   if (!res.ok) { const e: any = new Error(data.error || `Request failed (${res.status})`); e.status = res.status; e.data = data; throw e; }
   return data as T;
 }
@@ -20,8 +21,10 @@ export const api = {
   pick: (videoId?: string, folderId?: string | null) => req<AddResult & { cancelled?: boolean }>('POST', '/api/videos/pick', { videoId, folderId }),
   addPath: (path: string, videoId?: string, folderId?: string | null) => req<AddResult>('POST', '/api/videos', { path, videoId, folderId }),
   folders: () => req<Folder[]>('GET', '/api/folders'),
-  createFolder: (name: string, parent_id: string | null) => req<Folder>('POST', '/api/folders', { name, parent_id }),
-  updateFolder: (id: string, patch: { name?: string; parent_id?: string | null; position?: number }) => req<Folder>('PATCH', `/api/folders/${id}`, patch),
+  createFolder: (name: string, parent_id: string | null, status?: ProjectStatus, workspace_id?: string | null) => req<Folder>('POST', '/api/folders', { name, parent_id, status, workspace_id }),
+  updateFolder: (id: string, patch: { name?: string; parent_id?: string | null; position?: number; status?: ProjectStatus; notes?: string; links?: ProjectLink[]; workspace_id?: string | null }) => req<Folder>('PATCH', `/api/folders/${id}`, patch),
+  activity: () => req<{ items: Activity[]; unread: number; seen_at: number }>('GET', '/api/activity'),
+  activitySeen: () => req('POST', '/api/activity/seen'),
   deleteFolder: (id: string) => req('DELETE', `/api/folders/${id}`),
   moveVideos: (ids: string[], folder_id: string | null, before_id?: string | null) => req('POST', '/api/videos/move', { ids, folder_id, before_id }),
   removeVideos: (ids: string[]) => req<{ removed: number }>('POST', '/api/videos/remove', { ids }),
@@ -29,7 +32,7 @@ export const api = {
   rename: (id: string, title: string) => req<Video>('PATCH', `/api/videos/${id}`, { title }),
   removeVideo: (id: string) => req('DELETE', `/api/videos/${id}`),
   reveal: (versionId: string) => req('POST', `/api/versions/${versionId}/reveal`),
-  createComment: (c: { version_id: string; timestamp: number; text: string; transcript?: string; drawing?: Drawing | null }) => req<Comment>('POST', '/api/comments', c),
+  createComment: (c: { version_id: string; timestamp: number; general?: boolean; text: string; transcript?: string; drawing?: Drawing | null }) => req<Comment>('POST', '/api/comments', c),
   updateComment: (id: string, patch: Partial<Comment>) => req<Comment>('PATCH', `/api/comments/${id}`, patch),
   deleteComment: (id: string) => req('DELETE', `/api/comments/${id}`),
   reply: (id: string, text: string) => req<Comment>('POST', `/api/comments/${id}/replies`, { text }),

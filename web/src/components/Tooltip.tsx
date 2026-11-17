@@ -10,7 +10,7 @@ import { ease } from '../lib/motion';
  * every icon-only control also gets a matching aria-label.
  *
  *   <button {...tip('Draw', 'D')}>…</button>
- *   <button {...tip('Send to agent', ['⌘', '↩'], { aria: false })}>Send to agent</button>
+ *   <button {...tip('Send to editor', ['⌘', '↩'], { aria: false })}>Send to editor</button>
  */
 export type Side = 'top' | 'bottom' | 'right' | 'left';
 export function tip(label: string, keys?: string | string[], opts: { side?: Side; aria?: boolean; when?: 'collapsed' | 'truncated' } = {}) {

@@ -1,4 +1,4 @@
-import { useId, type SVGProps } from 'react';
+import type { SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
 const base = (size = 18): SVGProps<SVGSVGElement> => ({
@@ -9,6 +9,11 @@ const mk = (d: React.ReactNode) => ({ size, ...p }: P) => <svg {...base(size)} {
 
 export const IPlay = ({ size, ...p }: P) => <svg {...base(size)} {...p}><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none" /></svg>;
 export const IPause = ({ size, ...p }: P) => <svg {...base(size)} {...p}><rect x="6" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none" /><rect x="14" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none" /></svg>;
+export const IBoard = mk(<><rect x="3.5" y="4.5" width="17" height="15" rx="3" /><path d="M9.2 4.5v15M14.8 4.5v15" /><path d="M5.8 8h1.4M11.3 8h1.4M16.8 8h1.4" /></>);
+export const IBell = mk(<><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2.2 2.2 0 0 0 4 0" /></>);
+export const ILinkSm = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>);
+export const IDownload = mk(<><path d="M12 4v11M7 10.5l5 5 5-5" /><path d="M5 19.5h14" /></>);
+export const IPeople = mk(<><circle cx="9" cy="8.5" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14.2a5.5 5.5 0 0 1 3 4.8" /></>);
 export const IPlus = mk(<path d="M12 5v14M5 12h14" />);
 export const IMinus = mk(<path d="M5 12h14" />);
 export const IArrowRight = mk(<path d="M5 12h14M13 6l6 6-6 6" />);
@@ -47,43 +52,22 @@ export const IList = mk(<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.
 export const ISearch = mk(<><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></>);
 export const ILink = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>);
 
-/** Bottle's app mark: a monoline "b" on a dark tile, with a green LED in the bowl. */
-export const BottleMark = ({ size = 22, tile = true }: { size?: number; tile?: boolean }) => {
-  const id = useId().replace(/:/g, '');
-  return (
-    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden className="bottle-mark">
-      {tile && (
-        <>
-          <defs>
-            <linearGradient id={`t${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#262626" /><stop offset="1" stopColor="#121212" /></linearGradient>
-            <linearGradient id={`s${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#fff" stopOpacity=".1" /><stop offset=".5" stopColor="#fff" stopOpacity="0" /></linearGradient>
-          </defs>
-          <rect x="8" y="8" width="496" height="496" rx="112" fill={`url(#t${id})`} />
-          <rect x="8" y="8" width="496" height="496" rx="112" fill={`url(#s${id})`} />
-          <rect x="8.75" y="8.75" width="494.5" height="494.5" rx="111.25" fill="none" stroke="#fff" strokeOpacity=".09" strokeWidth="1.5" />
-        </>
-      )}
-      <g transform="translate(256 256) scale(1.55) translate(-125 -230)">
-        <g fill="none" stroke="#f4f4f0" strokeWidth="30" strokeLinecap="round"><path d="M80 160V300" /><circle cx="125" cy="255" r="45" /></g>
-        <circle cx="125" cy="255" r="13" fill="var(--accent)" />
-      </g>
-    </svg>
-  );
-};
-
-/** The "bottle" wordmark: monoline letters, both t's share one crossbar with a green playhead. */
-export const Wordmark = ({ height = 20 }: { height?: number }) => (
-  <svg height={height} viewBox="50 140 600 180" aria-label="bottle" role="img" className="wordmark-svg">
-    <g fill="none" stroke="currentColor" strokeWidth="30" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M80 160V300" /><circle cx="125" cy="255" r="45" />
-      <circle cx="259" cy="255" r="45" />
-      <path d="M356 172V268Q356 300 386 300" />
-      <path d="M416 172V268Q416 300 446 300" />
-      <path d="M492 160V300" />
-      <path d="M537 255H621A45 45 0 1 0 611.5 282.7" />
-      <path d="M342 216H444" />
+/** Portal's app mark: the playhead "t" from the wordmark (red head, ink line) on a white tile. */
+export const PortalMark = ({ size = 22, tile = true }: { size?: number; tile?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden className="portal-mark">
+    {tile && <rect x="8" y="8" width="496" height="496" rx="112" fill="#fff" stroke="#e6e0e0" strokeWidth="4" />}
+    <g transform="translate(256 256) scale(0.56) translate(-178.1 315.0)">
+      <path d="M129.1 -520L19.6 -42Q10 -0 52 -0Q94 -0 103.6 -42L213.1 -520Z" fill="var(--ink, #0b0404)" />
+      <path d="M68.3 -630L324.3 -630Q346.3 -630 341.2 -608L331.6 -566L159.6 -470L31.6 -566L41.2 -608Q46.3 -630 68.3 -630Z" fill="#e8121b" />
     </g>
-    <circle cx="386" cy="216" r="17" fill="var(--accent)" stroke="var(--bg)" strokeWidth="6" />
+  </svg>
+);
+
+/** The "portal" wordmark: Instrument Serif Italic, its t redrawn as an editor's playhead. */
+export const Wordmark = ({ height = 20 }: { height?: number }) => (
+  <svg height={height} viewBox="-97 -751 2145 964" aria-label="portal" role="img" className="wordmark-svg">
+    <path d="M-76 205Q-89 205 -89 194Q-89 184 -73 182L-59 180Q-39 177 -29.5 168.5Q-20 160 -15 138L118 -436Q120 -444 115.5 -448.5Q111 -453 103 -448Q93 -443 84 -437.5Q75 -432 66 -426Q57 -420 51 -422.5Q45 -425 45 -432Q45 -439 55 -446Q83 -465 113 -479Q130 -487 134 -505L147 -562Q152 -583 173 -583L191 -583Q203 -583 209 -576Q215 -569 212 -556L205 -527Q202 -510 218 -513Q241 -516 262 -516Q336 -516 383 -474Q430 -432 430 -345Q430 -277 405 -213.5Q380 -150 339 -100Q298 -50 249 -20.5Q200 9 151 9Q124 9 100 -2Q85 -9 82 6L52 138Q47 160 52.5 167Q58 174 77 177L103 181Q121 184 121 193Q121 205 104 205ZM110 -115Q92 -16 153 -16Q188 -16 224 -45.5Q260 -75 291 -124.5Q322 -174 341 -236Q360 -298 360 -363Q360 -430 331 -459.5Q302 -489 246 -489Q196 -489 189 -455ZM592 9Q530 9 494 -42.5Q458 -94 458 -182Q458 -247 479 -307Q500 -367 534.5 -414Q569 -461 611.5 -488.5Q654 -516 697 -516Q759 -516 795 -465Q831 -414 831 -325Q831 -260 810 -200Q789 -140 754.5 -93Q720 -46 677.5 -18.5Q635 9 592 9ZM590 -15Q622 -15 652.5 -46Q683 -77 708 -128Q733 -179 748 -241.5Q763 -304 763 -367Q763 -492 698 -492Q667 -492 636 -461.5Q605 -431 580.5 -380Q556 -329 541 -266.5Q526 -204 526 -141Q526 -15 590 -15ZM904 -0Q890 -0 893 -13L988 -412Q993 -434 989.5 -446.5Q986 -459 971 -459Q953 -459 931.5 -432.5Q910 -406 883 -332Q879 -319 869 -319Q854 -319 861 -337Q883 -406 907.5 -445Q932 -484 957 -500Q982 -516 1003 -516Q1036 -516 1050 -491.5Q1064 -467 1051 -411L1040 -364Q1039 -357 1043 -356Q1047 -355 1050 -361Q1088 -448 1119 -482Q1150 -516 1190 -516Q1217 -516 1230.5 -501.5Q1244 -487 1244 -462Q1244 -437 1232 -422Q1220 -407 1201 -407Q1185 -407 1178 -415Q1171 -423 1167.5 -433.5Q1164 -444 1160 -452Q1156 -460 1147 -460Q1132 -460 1108 -422Q1084 -384 1056.5 -319.5Q1029 -255 1003.5 -175Q978 -95 959 -11Q956 -0 945 -0ZM1425 9Q1389 9 1369 -22Q1349 -53 1349 -113Q1349 -170 1365 -227.5Q1381 -285 1409 -337Q1437 -389 1472.5 -429Q1508 -469 1547.5 -492.5Q1587 -516 1626 -516Q1645 -516 1662 -508.5Q1679 -501 1690 -485Q1696 -476 1702 -476Q1708 -476 1714 -485Q1725 -501 1732 -505.5Q1739 -510 1745 -510Q1758 -510 1755 -496L1666 -113Q1651 -48 1686 -48Q1709 -48 1727.5 -79Q1746 -110 1765 -175Q1768 -186 1778 -186Q1785 -186 1787 -180Q1789 -174 1787 -166Q1768 -72 1736 -31.5Q1704 9 1659 9Q1620 9 1603.5 -24Q1587 -57 1600 -114L1613 -169Q1615 -176 1610.5 -177Q1606 -178 1603 -172Q1548 -71 1505.5 -31Q1463 9 1425 9ZM1450 -42Q1474 -42 1503 -71Q1532 -100 1560.5 -146Q1589 -192 1613 -245Q1637 -298 1651.5 -347Q1666 -396 1666 -430Q1666 -491 1623 -491Q1597 -491 1568 -467.5Q1539 -444 1512.5 -404Q1486 -364 1464.5 -313.5Q1443 -263 1430 -208.5Q1417 -154 1417 -102Q1417 -67 1425.5 -54.5Q1434 -42 1450 -42ZM1872 10Q1839 10 1825 -14.5Q1811 -39 1824 -95L1951 -640Q1956 -658 1951.5 -665Q1947 -672 1933 -673L1903 -676Q1888 -677 1890 -689Q1892 -698 1904 -700Q1940 -706 1968 -714.5Q1996 -723 2013 -737Q2021 -743 2028 -743Q2040 -743 2037 -728L1889 -94Q1884 -72 1887.5 -59.5Q1891 -47 1906 -47Q1924 -47 1945.5 -73.5Q1967 -100 1994 -174Q1998 -187 2008 -187Q2023 -187 2016 -169Q1995 -101 1969.5 -61.5Q1944 -22 1919 -6Q1894 10 1872 10ZM1302.1 -520L1188.7 -25Q1183 -0 1208 -0Q1233 -0 1238.7 -25L1352.1 -520Z" fill="currentColor" />
+    <path d="M1231.3 -604L1461.3 -604Q1477.3 -604 1473.7 -588L1465.9 -554L1317.9 -480L1203.9 -554L1211.7 -588Q1215.3 -604 1231.3 -604Z" fill="#e8121b" />
   </svg>
 );
 

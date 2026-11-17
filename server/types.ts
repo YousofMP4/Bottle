@@ -40,6 +40,43 @@ export interface Folder {
   parent_id: string | null;
   position: number;
   created_at: number;
+  /** Project stage (top-level folders are projects). */
+  status: ProjectStatus;
+  status_at: number | null;
+  links: ProjectLink[];
+  notes: string;
+  /** When the agent reported the Done clean-up (overlays, temp renders) finished; reset on every stage change. */
+  cleaned_at: number | null;
+  /** Online only: the client/company workspace a project belongs to. */
+  workspace_id?: string | null;
+}
+
+/** Online only: one per client or company; projects live inside it and people are invited to it. */
+export interface Workspace { id: string; name: string; position: number; created_at: number }
+
+export type ProjectStatus = 'ready' | 'working' | 'revising' | 'done';
+export const PROJECT_STATUSES: ProjectStatus[] = ['ready', 'working', 'revising', 'done'];
+export const STATUS_LABEL: Record<ProjectStatus, string> = { ready: 'Ready to start', working: 'Working', revising: 'Revising', done: 'Done' };
+/** Column titles on the board. Done carries its instruction: the agent deletes the unessential files. */
+export const COLUMN_TITLE: Record<ProjectStatus, string> = { ...STATUS_LABEL, done: 'Done (delete unessential files)' };
+/** Old versions in a project that has sat in Done this long are removed from Portal. */
+export const DONE_PRUNE_DAYS = 7;
+export interface ProjectLink { id: string; label: string; url: string }
+
+export type ActivityKind = 'video_added' | 'version_added' | 'project_created' | 'project_moved' | 'project_renamed' | 'project_updated' | 'project_deleted' | 'agent_reply' | 'revision_resolved' | 'revisions_sent' | 'project_cleaned' | 'versions_cleared';
+export interface Activity {
+  id: string;
+  kind: ActivityKind;
+  /** 'you' for things done in this browser, 'agent' for MCP, 'portal' for automatic housekeeping. */
+  actor: 'you' | 'agent' | 'portal' | 'client';
+  /** Online: who did it, and whether it was the signed-in person (so it doesn't count as new). */
+  user_id?: string | null;
+  actor_name?: string | null;
+  mine?: boolean;
+  text: string;
+  video_id: string | null;
+  folder_id: string | null;
+  created_at: number;
 }
 
 export interface Video {
@@ -65,6 +102,8 @@ export interface Comment {
   round_id: string | null;
   parent_id: string | null;
   timestamp: number;
+  /** About the whole video, not one moment. */
+  general: boolean;
   text: string;
   transcript: string;
   audio: string | null;

@@ -7,8 +7,10 @@ import { voice, useVoice } from '../lib/voice';
 import { player } from '../lib/bus';
 import { tc, ago } from '../lib/time';
 import { spring } from '../lib/motion';
-import { IPause, IPlay, IBot, ICheck, IMic, IPen, IReply, ITrash, IEye } from './Icons';
+import { IPause, IPlay, ICheck, IMic, IPen, IReply, ITrash, IEye } from './Icons';
 import { tip } from './Tooltip';
+import { editCommentText, retimeComment } from '../lib/comments';
+import { CLOUD } from '../lib/cloud';
 
 export function CommentsPanel({ version, comments, rounds }: { version: Version; comments: Comment[]; rounds: Round[] }) {
   const filter = useStore((s) => s.filter);
@@ -70,8 +72,18 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
   const set = useStore((s) => s.set);
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  // Online, clients can change only what they wrote (the server enforces this too).
+  const me = useStore((s) => s.me);
+  const mine = !(me?.role === 'client' && (c as any).user_id !== me.id);
+  const startEdit = () => { if (!mine) return; setEditText(c.text); setEditing(true); };
+  const saveEdit = async () => { if (!editing) return; setEditing(false); if (!(await editCommentText(c, editText))) setEditText(c.text); };
+  // The time chip moves the comment to wherever the playhead is now (clicking the card still jumps to it).
+  const moveHere = (e: React.MouseEvent) => { e.stopPropagation(); retimeComment(c, player.time); };
   const sent = round?.status === 'submitted';
-  const jump = () => { player.pause(); player.seek(c.timestamp); set({ selectedId: c.id }); };
+  // Whole-video comments only jump when they carry a drawing (to show the marked frame).
+  const jump = () => { if (!c.general || c.drawing) { player.pause(); player.seek(c.timestamp); } set({ selectedId: c.id }); };
   const toggleResolve = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const u = await api.updateComment(c.id, { status: c.status === 'open' ? 'resolved' : 'open' });
@@ -118,24 +130,45 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
       exit={{ opacity: 0, x: 24, transition: { duration: 0.18 } }}
       transition={spring.soft}
       onClick={jump}
+      onDoubleClick={(e) => { if ((e.target as HTMLElement).closest('button, a, input, textarea, .voice-note')) return; e.preventDefault(); startEdit(); }}
     >
       <div className="c-head">
-        <span className={`avatar ${c.author_type}`}>{c.author_type === 'agent' ? <IBot size={13} /> : c.author.charAt(0)}</span>
+        <span className={`avatar ${c.author_type}`}>{c.author.charAt(0)}</span>
         <span className="c-author">{c.author}</span>
         <span className="c-ago dim">{ago(c.created_at)}</span>
         <span className="grow" />
-        {!sent && c.status === 'open' && <span className="tag draft" {...tip('Not sent to your agent yet', undefined, { aria: false })}>Unsent</span>}
-        {sent && <span className="tag" {...tip(`Sent to your agent in round ${round!.number}`, undefined, { aria: false })}>R{round!.number}</span>}
-        <button className="time-chip mono sm" onClick={(e) => { e.stopPropagation(); jump(); }} {...tip(`Jump to ${tc(c.timestamp, true)}`, undefined, { side: 'left' })}>{tc(c.timestamp, true)}</button>
+        {!sent && c.status === 'open' && <span className="tag draft" {...tip('Not sent to your editor yet', undefined, { aria: false })}>Unsent</span>}
+        {sent && <span className="tag" {...tip(`Sent to your editor in round ${round!.number}`, undefined, { aria: false })}>R{round!.number}</span>}
+        <button className={`time-chip mono sm ${c.general ? 'general' : ''}`} onClick={moveHere} {...tip(c.general ? 'About the whole video · click to pin it to the playhead' : 'Click to move this comment to the playhead', undefined, { side: 'left' })}>
+          {c.general ? 'Whole video' : tc(c.timestamp, true)}
+        </button>
       </div>
-      {c.text && <p className="c-text">{c.text}</p>}
+      {editing ? (
+        <textarea
+          autoFocus
+          className="field c-edit"
+          value={editText}
+          aria-label="Edit comment"
+          rows={Math.min(6, Math.max(2, editText.split('\n').length))}
+          onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onChange={(e) => setEditText(e.target.value)}
+          onBlur={saveEdit}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); saveEdit(); }
+            if (e.key === 'Escape') { e.preventDefault(); setEditing(false); setEditText(c.text); }
+          }}
+        />
+      ) : c.text ? <p className="c-text">{c.text}</p> : null}
       {(c.audio || c.transcript) && <VoiceNote c={c} />}
       {c.drawing && (
         <div className="c-drawing">
           <IPen size={12} /> {c.drawing.shapes.length} mark{c.drawing.shapes.length === 1 ? '' : 's'} on frame
-          <a className="link sm" href={`/api/frame.png?revisionId=${c.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} {...tip('Open exactly what your agent will see', undefined, { aria: false })}>
-            <IEye size={12} /> Agent view
-          </a>
+          {!CLOUD && <a className="link sm" href={`/api/frame.png?revisionId=${c.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} {...tip('Open the frame with your drawing on it', undefined, { aria: false })}>
+            <IEye size={12} /> View frame
+          </a>}
         </div>
       )}
       {replies.length > 0 && (
@@ -143,7 +176,7 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
           <AnimatePresence initial={false}>
             {replies.map((r) => (
               <motion.div key={r.id} layout className={`reply ${r.author_type}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring.soft}>
-                <span className={`avatar xs ${r.author_type}`}>{r.author_type === 'agent' ? <IBot size={11} /> : r.author.charAt(0)}</span>
+                <span className={`avatar xs ${r.author_type}`}>{r.author.charAt(0)}</span>
                 <div>
                   <div className="r-head"><b>{r.author}</b> <span className="dim">{ago(r.created_at)}</span></div>
                   <p>{r.text}</p>
@@ -164,9 +197,10 @@ function CommentCard({ c, replies, round, selected }: { c: Comment; replies: Com
       </AnimatePresence>
       <div className="c-actions" onClick={(e) => e.stopPropagation()}>
         <button className="c-act" onClick={() => setReplying((r) => !r)}><IReply size={13} /> Reply</button>
+        {mine && <button className="c-act" onClick={startEdit} {...tip('Edit comment · or double-click it')}><IPen size={13} /> Edit</button>}
         <button className={`c-act ${c.status === 'resolved' ? 'on' : ''}`} onClick={toggleResolve}><ICheck size={13} /> {c.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
         <span className="grow" />
-        <button className="c-act icon danger" onClick={del} {...tip('Delete comment', undefined, { side: 'left' })}><ITrash size={13} /></button>
+        {mine && <button className="c-act icon danger" onClick={del} {...tip('Delete comment', undefined, { side: 'left' })}><ITrash size={13} /></button>}
       </div>
     </motion.article>
   );

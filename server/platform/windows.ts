@@ -6,7 +6,7 @@ import { exec } from './exec.js';
 // Untested scaffold: PowerShell's WinForms dialog. Kept here so Windows support is a drop-in.
 const PS_PICK = `Add-Type -AssemblyName System.Windows.Forms;
 $d = New-Object System.Windows.Forms.OpenFileDialog;
-$d.Title = 'Choose a video to review in Bottle';
+$d.Title = 'Choose a video to review in Portal';
 $d.Filter = 'Videos|*.mp4;*.mov;*.m4v;*.webm;*.mkv|All files|*.*';
 if ($d.ShowDialog() -eq 'OK') { Write-Output $d.FileName }`;
 

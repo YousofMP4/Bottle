@@ -8,7 +8,7 @@ export const linux: Platform = {
   async canPick() { return !!process.env.DISPLAY && (await which('zenity')); },
   async pickVideoFile() {
     if (!(await this.canPick())) throw new PickerUnavailable('No native file picker here — paste the path instead.');
-    const r = await exec('zenity', ['--file-selection', '--title=Choose a video to review in Bottle',
+    const r = await exec('zenity', ['--file-selection', '--title=Choose a video to review in Portal',
       '--file-filter=Videos | *.mp4 *.mov *.m4v *.webm *.mkv']);
     if (r.code === 1) return null;
     if (r.code !== 0) throw new Error(r.stderr.trim());

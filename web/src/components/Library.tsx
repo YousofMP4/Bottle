@@ -4,25 +4,32 @@ import type { Folder, VideoSummary } from '../../../server/types';
 import { useStore, addVideo, playVideo, askRemove } from '../lib/store';
 import { api, posterUrl, mediaUrl } from '../lib/api';
 import { tc, ago } from '../lib/time';
-import { BottleMark, IChevronRight, IFilm, IFolder, IGrid, IList, IPlay, IPlus, ISearch, ITrash, ICopy, IX } from './Icons';
+import { PortalMark, IChevronRight, IFilm, IFolder, IGrid, IList, IPlay, IPlus, ISearch, ITrash, ICopy, IX } from './Icons';
 import { ease, spring } from '../lib/motion';
 import { tip } from './Tooltip';
+import { ProjectHeader } from './Projects';
 import { AddVideoIcon, useAddBusy } from './AddVideoIcon';
 import { showMenu, type MenuItem } from './ContextMenu';
+import { CLOUD } from '../lib/cloud';
+import { downloadVersion } from '../lib/cloud';
+import { IDownload } from './Icons';
+import { isClient, useIsClient } from '../lib/store';
+import { dropVideosOnWorkspace } from '../lib/dropVideos';
 
 type Sort = 'recent' | 'custom' | 'name' | 'duration' | 'notes';
 type View = 'grid' | 'list';
 const SORTS: [Sort, string][] = [['recent', 'Recently updated'], ['custom', 'Your order'], ['name', 'Name'], ['duration', 'Duration'], ['notes', 'Most notes']];
 
 const store = {
-  get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem('bottle.' + k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } },
-  set: (k: string, v: unknown) => { try { localStorage.setItem('bottle.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
+  get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem('portal.' + k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } },
+  set: (k: string, v: unknown) => { try { localStorage.setItem('portal.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
 
 interface Drag { kind: 'video' | 'folder'; ids: string[]; x: number; y: number; target: DropTarget | null; poster?: string }
-type DropTarget = { type: 'folder'; id: string | null } | { type: 'before'; id: string; after: boolean };
+type DropTarget = { type: 'folder'; id: string | null } | { type: 'workspace'; id: string } | { type: 'before'; id: string; after: boolean };
 
 export function Library() {
+  const client = useIsClient();
   const picking = useStore((s) => s.picking);
   const busy = useAddBusy();
   const videos = useStore((s) => s.videos);
@@ -34,6 +41,13 @@ export function Library() {
   const current = route.name === 'library' ? route.folder ?? null : null;
   const folder = folders.find((f) => f.id === current) ?? null;
   const parent = folder?.parent_id ? folders.find((f) => f.id === folder.parent_id) ?? null : null;
+  // Online the Library is a file explorer: Workspace (client) → Project → folders and videos.
+  const workspaces = useStore((s) => s.workspaces);
+  const useWs = CLOUD && workspaces.length > 0;
+  const wsHere = route.name === 'library' && route.ws ? workspaces.find((w) => w.id === route.ws) ?? null : null;
+  const project = parent ?? folder;
+  const wsOf = useWs ? workspaces.find((w) => w.id === project?.workspace_id) ?? wsHere : null;
+  const atRoot = !current && !wsHere;
 
   const [query, setQuery] = useState('');
   const [sort, setSortState] = useState<Sort>(() => store.get('sort', 'recent'));
@@ -51,12 +65,13 @@ export function Library() {
   useEffect(() => { if (current && loaded && folders.length && !folder) go({ name: 'library' }); }, [current, folder, loaded]);
   useEffect(() => { setSel(new Set()); }, [current]);
 
-  const childFolders = query ? [] : folders.filter((f) => (f.parent_id ?? null) === current);
+  const childFolders = query ? [] : folders.filter((f) => (f.parent_id ?? null) === current && (!useWs || current || (wsHere ? f.workspace_id === wsHere.id : !f.workspace_id || !workspaces.some((w) => w.id === f.workspace_id))));
+  const wsTiles = useWs && atRoot && !query ? workspaces : [];
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = q
       ? videos.filter((v) => v.title.toLowerCase().includes(q) || (v.latest?.filename ?? '').toLowerCase().includes(q))
-      : videos.filter((v) => (v.folder_id ?? null) === current);
+      : wsHere ? [] : videos.filter((v) => (v.folder_id ?? null) === current);
     const by: Record<Sort, (a: VideoSummary, b: VideoSummary) => number> = {
       recent: (a, b) => b.updated_at - a.updated_at,
       custom: (a, b) => (a.position ?? 0) - (b.position ?? 0) || b.updated_at - a.updated_at,
@@ -65,7 +80,7 @@ export function Library() {
       notes: (a, b) => (b.open_count + b.draft_count) - (a.open_count + a.draft_count),
     };
     return [...list].sort(by[sort]);
-  }, [videos, current, query, sort]);
+  }, [videos, current, query, sort, wsHere]);
   const ids = shown.map((v) => v.id);
 
   // ---------- keyboard: Cmd+A, Delete, Esc, / to search ----------
@@ -103,7 +118,7 @@ export function Library() {
     const parentId = folder && !folder.parent_id ? folder.id : folder?.parent_id ? null : null;
     if (folder?.parent_id) { toast({ text: 'Folders go one level deep', sub: 'Make the new folder in the top level or a top-level folder.' }); return; }
     try {
-      const f = await api.createFolder('New folder', parentId);
+      const f = await api.createFolder(wsHere || (useWs && !folder) ? 'New project' : 'New folder', parentId, undefined, wsHere?.id ?? null);
       useStore.setState((s) => ({ folders: [...s.folders, f] }));
       setRenaming({ kind: 'folder', id: f.id });
     } catch (e: any) { toast({ text: 'Couldn’t create the folder', sub: e.message, tone: 'error' }); }
@@ -119,6 +134,14 @@ export function Library() {
       toast({ text: `Moved ${vids.length === 1 ? '1 video' : `${vids.length} videos`} to ${name}`, tone: 'accent' });
     }
     setSel(new Set());
+  };
+  const moveToWorkspace = async (id: string, wsId: string) => {
+    const f = folders.find((x) => x.id === id);
+    const w = workspaces.find((x) => x.id === wsId);
+    useStore.setState((s) => ({ folders: s.folders.map((x) => (x.id === id ? { ...x, parent_id: null, workspace_id: wsId } : x)) }));
+    try { await api.updateFolder(id, { parent_id: null, workspace_id: wsId }); toast({ text: `Moved “${f?.name}” to ${w?.name}`, tone: 'accent' }); }
+    catch (e: any) { toast({ text: 'Can’t move that there', sub: e.message, tone: 'error' }); }
+    useStore.getState().loadVideos();
   };
   const moveFolder = async (id: string, parentId: string | null) => {
     try { await api.updateFolder(id, { parent_id: parentId }); useStore.getState().loadVideos(); }
@@ -138,6 +161,10 @@ export function Library() {
     return items;
   };
   const videoMenu = (v: VideoSummary): MenuItem[] => {
+    if (isClient()) return [
+      { label: 'Play', icon: <IPlay size={13} />, kbd: '↩', run: () => playVideo(v.id) },
+      ...(v.latest ? [{ label: `Download v${v.latest.number}`, icon: <IDownload size={14} />, run: () => downloadVersion(v.latest!.id) } as MenuItem] : []),
+    ];
     const group = sel.has(v.id) && sel.size > 1 ? [...sel] : [v.id];
     const many = group.length > 1;
     const targets = moveTargets(many ? undefined : (v.folder_id ?? null)).map((it, i) => {
@@ -153,14 +180,15 @@ export function Library() {
       { label: many ? `Move ${group.length} videos to…` : 'Move to…', icon: <IFolder size={14} />, submenu: targets },
       'sep',
       ...(many ? [] : [
-        { label: 'Show in Finder', run: () => v.latest && api.reveal(v.latest.id) } as MenuItem,
-        { label: 'Copy path', icon: <ICopy size={13} />, run: () => copyPath(v) } as MenuItem,
+        ...(CLOUD && v.latest ? [{ label: `Download v${v.latest.number}`, icon: <IDownload size={14} />, run: () => downloadVersion(v.latest!.id) } as MenuItem] : []),
+        ...(CLOUD ? [] : [{ label: 'Show in Finder', run: () => v.latest && api.reveal(v.latest.id) } as MenuItem, { label: 'Copy path', icon: <ICopy size={13} />, run: () => copyPath(v) } as MenuItem]),
         'sep' as MenuItem,
       ]),
       { label: many ? `Remove ${group.length} from library…` : 'Remove from library…', icon: <ITrash size={14} />, kbd: '⌫', danger: true, run: () => askRemove(group, () => setSel(new Set())) },
     ];
   };
   const folderMenu = (f: Folder): MenuItem[] => {
+    if (isClient()) return [{ label: 'Open', icon: <IFolder size={14} />, run: () => go({ name: 'library', folder: f.id }) }];
     const kids = folders.some((x) => x.parent_id === f.id);
     const tops = folders.filter((x) => !x.parent_id && x.id !== f.id);
     return [
@@ -183,7 +211,7 @@ export function Library() {
   };
   const emptyMenu = (): MenuItem[] => [
     { label: 'Add video…', icon: <IPlus size={13} />, kbd: '⌘O', run: () => addVideo() },
-    { label: 'New folder', icon: <IFolder size={14} />, disabled: !!folder?.parent_id, hint: 'Folders go one level deep', run: newFolder },
+    ...(isClient() ? [] : [{ label: 'New folder', icon: <IFolder size={14} />, disabled: !!folder?.parent_id, hint: 'Folders go one level deep', run: newFolder } as MenuItem]),
     'sep',
     { label: 'Select all', kbd: '⌘A', disabled: !ids.length, run: () => setSel(new Set(ids)) },
   ];
@@ -196,6 +224,8 @@ export function Library() {
     const group = kind === 'video' && sel.has(id) ? [...sel] : [id];
     const targetAt = (x: number, y: number): DropTarget | null => {
       const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const w = el?.closest('[data-drop-workspace]') as HTMLElement | null;
+      if (w) return { type: 'workspace', id: w.dataset.dropWorkspace! };
       const f = el?.closest('[data-drop-folder]') as HTMLElement | null;
       if (f) {
         const fid = f.dataset.dropFolder || null;
@@ -215,20 +245,32 @@ export function Library() {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
         started = true;
         document.documentElement.dataset.dragCursor = 'move';
+        document.documentElement.dataset.dragging = kind;
         if (kind === 'video' && !sel.has(id)) setSel(new Set());
       }
-      setDrag({ kind, ids: group, x: ev.clientX, y: ev.clientY, target: targetAt(ev.clientX, ev.clientY), poster });
+      const tg = targetAt(ev.clientX, ev.clientY);
+      setDrag({ kind, ids: group, x: ev.clientX, y: ev.clientY, target: tg, poster });
+      // Targets outside the Library (sidebar, board tabs) light up through a shared attribute.
+      document.querySelectorAll('[data-drop-hot]').forEach((n) => n.removeAttribute('data-drop-hot'));
+      if (tg && tg.type !== 'before') document.querySelector(tg.type === 'workspace' ? `[data-drop-workspace="${tg.id}"]:not(.ws-tile)` : `.sidebar [data-drop-folder="${tg.id ?? ''}"]`)?.setAttribute('data-drop-hot', '');
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       if (!started) return;
       delete document.documentElement.dataset.dragCursor;
+      delete document.documentElement.dataset.dragging;
       suppressClick.current = true;
       setTimeout(() => { suppressClick.current = false; }, 0);
       const t = targetAt(ev.clientX, ev.clientY);
       setDrag(null);
+      document.querySelectorAll('[data-drop-hot]').forEach((n) => n.removeAttribute('data-drop-hot'));
       if (!t) return;
+      if (t.type === 'workspace') {
+        if (kind === 'folder') moveToWorkspace(id, t.id);
+        else { dropVideosOnWorkspace(group, t.id, { x: ev.clientX, y: ev.clientY }); setSel(new Set()); }
+        return;
+      }
       if (kind === 'folder') { if (t.type === 'folder') moveFolder(id, t.id); return; }
       if (t.type === 'folder') { if (t.id !== current) moveTo(group, t.id); return; }
       // Reorder within this folder: switch to "Your order" so the drop sticks visibly.
@@ -260,7 +302,8 @@ export function Library() {
     <div className={`library ${drag ? 'dragging' : ''}`}>
       <header className="topbar lib-top">
         <nav className="crumbs" aria-label="Folders">
-          <button className={`crumb ${!current ? 'crumb-here' : ''} ${isTarget({ type: 'folder', id: null }) ? 'drop-hot' : ''}`} data-drop-folder="" onClick={() => go({ name: 'library' })}>Library</button>
+          <button className={`crumb ${atRoot ? 'crumb-here' : ''} ${isTarget({ type: 'folder', id: null }) ? 'drop-hot' : ''}`} data-drop-folder="" onClick={() => go({ name: 'library' })}>Library</button>
+          {wsOf && <><IChevronRight size={14} className="crumb-sep" /><button className={`crumb ${wsHere && !current ? 'crumb-here' : ''} ${isTarget({ type: 'workspace', id: wsOf.id }) ? 'drop-hot' : ''}`} data-drop-workspace={wsOf.id} onClick={() => go({ name: 'library', ws: wsOf.id })}>{wsOf.name}</button></>}
           {parent && <><IChevronRight size={14} className="crumb-sep" /><button className={`crumb ${isTarget({ type: 'folder', id: parent.id }) ? 'drop-hot' : ''}`} data-drop-folder={parent.id} onClick={() => go({ name: 'library', folder: parent.id })}>{parent.name}</button></>}
           {folder && <><IChevronRight size={14} className="crumb-sep" /><span className="crumb crumb-here">{folder.name}</span></>}
         </nav>
@@ -279,8 +322,8 @@ export function Library() {
               </button>
             ))}
           </div>
-          <button className="round-btn" onClick={newFolder} aria-disabled={!!folder?.parent_id} {...tip(folder?.parent_id ? 'Folders go one level deep' : 'New folder', undefined, { side: 'bottom' })}><IFolderPlus /></button>
-          <button className="btn primary" onClick={() => addVideo()} {...busy} {...tip(folder ? `Add a video to “${folder.name}”` : 'Add a video from this Mac', ['⌘', 'O'], { side: 'bottom', aria: false })}>
+          {!client && <button className="round-btn" onClick={newFolder} aria-disabled={!!folder?.parent_id} {...tip(folder?.parent_id ? 'Folders go one level deep' : 'New folder', undefined, { side: 'bottom' })}><IFolderPlus /></button>}
+          <button className="btn primary" onClick={() => addVideo()} {...busy} {...tip(folder ? `Add a video to “${folder.name}”` : CLOUD ? 'Upload a video' : 'Add a video from this Mac', ['⌘', 'O'], { side: 'bottom', aria: false })}>
             <AddVideoIcon size={16} dark /> {picking ? 'Opening…' : 'Add video'}
           </button>
         </div>
@@ -288,8 +331,28 @@ export function Library() {
 
       <div className="lib-scroll" onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('lib-body')) setSel(new Set()); }} onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-drop-video], .folder-tile')) showMenu(e, emptyMenu()); }}>
         <div className="lib-body">
+          {folder && !folder.parent_id && !query && <ProjectHeader f={folder} />}
           {query && <p className="lib-note">{shown.length ? `${shown.length} result${shown.length === 1 ? '' : 's'} in your whole library` : `Nothing matches “${query}”.`}</p>}
 
+          {wsTiles.length > 0 && (
+            <>
+              <h2 className="lib-h">Workspaces</h2>
+              <section className="folders ws-grid" aria-label="Workspaces">
+                {wsTiles.map((w) => {
+                  const projs = folders.filter((f) => !f.parent_id && f.workspace_id === w.id);
+                  return (
+                    <div key={w.id} className={`folder-tile ws-tile ${isTarget({ type: 'workspace', id: w.id }) ? 'drop-hot' : ''}`} data-drop-workspace={w.id} role="button" tabIndex={0}
+                      onClick={() => go({ name: 'library', ws: w.id })} onKeyDown={(e) => { if (e.key === 'Enter') go({ name: 'library', ws: w.id }); }}>
+                      <span className="ws-plate">{w.name.charAt(0)}</span>
+                      <div className="folder-name">{w.name}</div>
+                      <div className="folder-meta">{projs.length} project{projs.length === 1 ? '' : 's'}</div>
+                    </div>
+                  );
+                })}
+              </section>
+              {childFolders.length > 0 && <h2 className="lib-h">Not in a workspace</h2>}
+            </>
+          )}
           {childFolders.length > 0 && (
             <section className="folders" aria-label="Folders">
               {childFolders.map((f) => {
@@ -303,7 +366,7 @@ export function Library() {
                     data-drop-folder={f.id}
                     role="button"
                     tabIndex={0}
-                    onPointerDown={(e) => startPointer(e, 'folder', f.id)}
+                    onPointerDown={(e) => { if (!client) startPointer(e, 'folder', f.id); }}
                     onClick={() => { if (suppressClick.current) return; go({ name: 'library', folder: f.id }); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') go({ name: 'library', folder: f.id }); }}
                     onContextMenu={(e) => showMenu(e, folderMenu(f))}
@@ -324,11 +387,18 @@ export function Library() {
             </section>
           )}
 
-          {shown.length === 0 && !query && (
+          {wsHere && childFolders.length === 0 && (
+            <div className="lib-empty">
+              <div className="lib-empty-art"><IFolder size={22} /></div>
+              <p className="pe-title">No projects in {wsHere.name} yet</p>
+              <p className="dim">Drag a project here, or {client ? 'ask Gleam Films to add one' : <button className="link" onClick={newFolder}>make a new one</button>}.</p>
+            </div>
+          )}
+          {shown.length === 0 && !query && !wsHere && !(atRoot && wsTiles.length) && (
             <div className="lib-empty" onContextMenu={(e) => showMenu(e, emptyMenu())}>
               <div className="lib-empty-art"><IFilm size={22} /></div>
               <p className="pe-title">{folder ? `“${folder.name}” is empty` : 'No videos here yet'}</p>
-              <p className="dim">Drag videos here, or <button className="link" onClick={() => addVideo()}>add one from this Mac</button>.</p>
+              <p className="dim">Drag videos here, or <button className="link" onClick={() => addVideo()}>{CLOUD ? 'upload one' : 'add one from this Mac'}</button>.</p>
             </div>
           )}
 
@@ -347,7 +417,7 @@ export function Library() {
                   const common = {
                     'data-drop-video': v.id,
                     'aria-selected': selected,
-                    onPointerDown: (e: React.PointerEvent) => startPointer(e, 'video', v.id, v.latest ? posterUrl(v.latest.id) : undefined),
+                    onPointerDown: (e: React.PointerEvent) => { if (!client) startPointer(e, 'video', v.id, v.latest ? posterUrl(v.latest.id) : undefined); },
                     onClick: (e: React.MouseEvent) => clickVideo(e, v.id),
                     onContextMenu: (e: React.MouseEvent) => { if (!sel.has(v.id)) setSel(new Set()); showMenu(e, videoMenu(v)); },
                     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') playVideo(v.id); },
@@ -357,7 +427,7 @@ export function Library() {
                     : <div className="card-title">{v.title}</div>;
                   const notes = (
                     <>
-                      {v.draft_count > 0 && <span className="led-meta" {...tip(`${v.draft_count} not sent to your agent yet`, undefined, { aria: false })}><i className="led amber" />{v.draft_count} unsent</span>}
+                      {v.draft_count > 0 && <span className="led-meta" {...tip(`${v.draft_count} not sent to your editor yet`, undefined, { aria: false })}><i className="led amber" />{v.draft_count} unsent</span>}
                       {v.open_count > 0 && <span className="led-meta" {...tip(`${v.open_count} sent and still open`, undefined, { aria: false })}><i className="led on" />{v.open_count} open</span>}
                     </>
                   );
@@ -541,23 +611,19 @@ function Empty() {
     ])}>
       <motion.div className="empty-mark" initial={{ scale: 0.6, opacity: 0, rotate: -8 }} animate={{ scale: 1, opacity: 1, rotate: 0 }} transition={{ ...spring.pop, delay: 0.05 }}>
         <div className="empty-glow" />
-        <BottleMark size={96} />
+        <PortalMark size={96} />
       </motion.div>
       <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.6, ease }}>
         Review a cut. <span className="dim">Hand it back.</span>
       </motion.h1>
       <motion.p className="empty-sub" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6, ease }}>
-        Add any video on this Mac to your library. Draw on frames, talk over it, pin notes to the
-        exact moment, then send it all to your agent. Your files stay where they are.
+        {CLOUD ? 'Upload a cut to your library.' : 'Add any video on this Mac to your library.'} Draw on frames, talk over it, pin notes to the
+        exact moment, then send it all to your editor.{CLOUD ? '' : ' Your files stay where they are.'}
       </motion.p>
       <motion.div className="empty-actions" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28, duration: 0.6, ease }}>
         <button className="btn primary lg" onClick={() => addVideo()} {...busy}>
           <AddVideoIcon size={18} dark /> {picking ? 'Opening Finder…' : <>Add video <kbd className="kbd-inline">⌘O</kbd></>}
         </button>
-      </motion.div>
-      <motion.div className="empty-agent" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45, duration: 0.8 }}>
-        <span className="dim">or let your agent add one:</span> <code>add_video("/path/to/cut.mp4")</code>
-        <button className="link" onClick={() => useStore.getState().set({ dialog: 'settings' })}>Connect to Claude →</button>
       </motion.div>
     </div>
   );

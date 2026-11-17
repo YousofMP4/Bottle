@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './paths.js';
 
-export const db = new Database(path.join(DATA_DIR, 'bottle.db'));
+// Libraries made before the rename to Portal live in bottle.db; keep using it so nothing is lost.
+const legacy = path.join(DATA_DIR, 'bottle.db');
+export const db = new Database(fs.existsSync(legacy) ? legacy : path.join(DATA_DIR, 'portal.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = ON');
@@ -83,6 +86,30 @@ CREATE TABLE IF NOT EXISTS folders (
   // a little later. The video file on disk is never touched either way.
   if (!cols.has('removed_at')) db.exec('ALTER TABLE videos ADD COLUMN removed_at INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS videos_folder ON videos(folder_id, position)');
+  // Video-wide comments: about the whole video rather than one moment. `timestamp` is still kept
+  // (it anchors any drawing) but the UI and agent treat the comment as not time specific.
+  const ccols = new Set((db.prepare('PRAGMA table_info(comments)').all() as { name: string }[]).map((c) => c.name));
+  if (!ccols.has('general')) db.exec('ALTER TABLE comments ADD COLUMN general INTEGER NOT NULL DEFAULT 0');
+  // Replies posted through the tools used to be signed "Agent"; they read as the editor now.
+  db.prepare("UPDATE comments SET author = 'Editor' WHERE author = 'Agent' AND author_type = 'agent'").run();
+  // Projects: every top-level folder is a project that moves through stages on the board.
+  const fcols = new Set((db.prepare('PRAGMA table_info(folders)').all() as { name: string }[]).map((c) => c.name));
+  if (!fcols.has('status')) db.exec("ALTER TABLE folders ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'");
+  if (!fcols.has('status_at')) db.exec('ALTER TABLE folders ADD COLUMN status_at INTEGER');
+  if (!fcols.has('links')) db.exec("ALTER TABLE folders ADD COLUMN links TEXT NOT NULL DEFAULT '[]'");
+  if (!fcols.has('cleaned_at')) db.exec('ALTER TABLE folders ADD COLUMN cleaned_at INTEGER');
+  if (!fcols.has('notes')) db.exec("ALTER TABLE folders ADD COLUMN notes TEXT NOT NULL DEFAULT ''");
+  // What happened, and who did it: feeds the notifications bell and the agent's get_activity.
+  db.exec(`CREATE TABLE IF NOT EXISTS activity (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    text TEXT NOT NULL,
+    video_id TEXT,
+    folder_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS activity_time ON activity(created_at);`);
 }
 
 const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';

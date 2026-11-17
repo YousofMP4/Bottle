@@ -1,10 +1,10 @@
-// Calls every Bottle MCP tool over stdio, like an agent would. Usage: node scripts/mcp-smoke.mjs
+// Calls every Portal MCP tool over stdio, like an agent would. Usage: node scripts/mcp-smoke.mjs
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import fs from 'node:fs';
 
 const transport = new StdioClientTransport({ command: process.execPath, args: ['dist/server/mcp.js'], env: { ...process.env } });
-const client = new Client({ name: 'bottle-smoke', version: '1' });
+const client = new Client({ name: 'portal-smoke', version: '1' });
 await client.connect(transport);
 const call = async (name, args = {}) => {
   const r = await client.callTool({ name, arguments: args });

@@ -1,8 +1,9 @@
 import { useStore, removeFromLibrary } from '../lib/store';
 import { Dialog } from './Dialog';
+import { CLOUD } from '../lib/cloud';
 
 /**
- * Confirmation for "Remove from library". The wording is deliberate: Bottle only forgets its
+ * Confirmation for "Remove from library". The wording is deliberate: Portal only forgets its
  * reference (and the comments on it). The video file on disk is never deleted.
  */
 export function RemoveDialog() {
@@ -24,16 +25,18 @@ export function RemoveDialog() {
     <Dialog open={open && !!ask} onClose={close} title={one ? `Remove “${one.title}” from your library?` : `Remove ${picked.length} videos from your library?`}>
       <div className="confirm">
         <p className="confirm-lead">
-          Bottle forgets {one ? 'this video' : 'these videos'}, every version, and {notes ? <b>{notes} open note{notes === 1 ? '' : 's'}</b> : 'all comments'} on {one ? 'it' : 'them'}.
+          Portal forgets {one ? 'this video' : 'these videos'}, every version, and {notes ? <b>{notes} open note{notes === 1 ? '' : 's'}</b> : 'all comments'} on {one ? 'it' : 'them'}.
         </p>
-        <div className="confirm-safe">
+        {CLOUD ? (
+          <p className="confirm-lead"><b>{one ? 'The uploaded file is deleted from Portal.' : 'The uploaded files are deleted from Portal.'}</b> Keep your own copy if you still need it.</p>
+        ) : <div className="confirm-safe">
           <span className="led on" aria-hidden />
           <div>
             <b>{one ? 'The file stays on your disk.' : 'The files stay on your disk.'}</b>
             <span className="dim small block">Nothing is deleted, moved or changed{one?.latest ? ':' : '.'}</span>
             {one?.latest && <code className="inline confirm-path">{one.latest.path}</code>}
           </div>
-        </div>
+        </div>}
         <p className="dim small">You can undo this for 8 seconds.</p>
         <div className="confirm-actions">
           <button className="btn" onClick={close}>Cancel</button>

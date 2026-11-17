@@ -39,7 +39,7 @@ export async function notifyRoundSubmitted(videoId: string, round: Round): Promi
       };
       const res = await fetch(s.webhook_url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'user-agent': 'Bottle' },
+        headers: { 'content-type': 'application/json', 'user-agent': 'Portal' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(6000),
       });

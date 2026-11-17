@@ -11,7 +11,7 @@ import { spring, ease } from '../lib/motion';
 import { IPause, IPlay, IMute } from './Icons';
 import { tip } from './Tooltip';
 
-/** Bottle's pen cursor: a small nib tinted with the active ink, hotspot at the tip (bottom-left). */
+/** Portal's pen cursor: a small nib tinted with the active ink, hotspot at the tip (bottom-left). */
 function penCursor(color: string) {
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
     <filter id='s' x='-20%' y='-20%' width='140%' height='140%'><feDropShadow dx='1' dy='1.5' stdDeviation='1' flood-opacity='.55'/></filter>
@@ -89,7 +89,7 @@ export function Stage({ version, comments, onBox }: { version: Version; comments
     let bufT = 0;
     const onWaiting = () => { clearTimeout(bufT); bufT = window.setTimeout(() => setBuffering(true), 180); };
     const onReady = () => { clearTimeout(bufT); setBuffering(false); };
-    const onVol = () => { useStore.setState({ muted: v.muted, volume: v.volume }); try { localStorage.setItem('bottle.volume', String(v.volume)); } catch { /* */ } if (!v.muted) { forcedMute.current = false; setAutoplayLimit((l) => (l === 'muted' ? null : l)); } };
+    const onVol = () => { useStore.setState({ muted: v.muted, volume: v.volume }); try { localStorage.setItem('portal.volume', String(v.volume)); } catch { /* */ } if (!v.muted) { forcedMute.current = false; setAutoplayLimit((l) => (l === 'muted' ? null : l)); } };
     v.muted = useStore.getState().muted;
     v.volume = useStore.getState().volume;
     // A fresh <video> starts paused; the old element never fired 'pause' when it was replaced.
