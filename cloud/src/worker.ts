@@ -67,6 +67,8 @@ const ADDED_COLUMNS = [
   `ALTER TABLE activity ADD COLUMN actor_name TEXT`,
   `ALTER TABLE folders ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`,
   `ALTER TABLE comments ADD COLUMN user_id TEXT`,
+  `ALTER TABLE videos ADD COLUMN revising_at INTEGER`,
+  `ALTER TABLE videos ADD COLUMN revising_note TEXT`,
 ];
 let schemaReady: Promise<void> | null = null;
 function ensureSchema(env: Env) {
@@ -293,13 +295,13 @@ class Portal {
 
   // videos
   async video(id: string) {
-    const v = await this.db.first('SELECT id, title, folder_id, position, created_at, updated_at FROM videos WHERE id = ? AND removed_at IS NULL', id);
+    const v = await this.db.first('SELECT id, title, folder_id, position, created_at, updated_at, revising_at, revising_note FROM videos WHERE id = ? AND removed_at IS NULL', id);
     if (!v || !this.canSee(v.folder_id)) throw notFound(`No video with id ${id}`);
     return v;
   }
   async listVideos() {
     const [vids, versions, counts] = await Promise.all([
-      this.db.all('SELECT id, title, folder_id, position, created_at, updated_at FROM videos WHERE removed_at IS NULL ORDER BY updated_at DESC'),
+      this.db.all('SELECT id, title, folder_id, position, created_at, updated_at, revising_at, revising_note FROM videos WHERE removed_at IS NULL ORDER BY updated_at DESC'),
       this.db.all('SELECT * FROM versions ORDER BY number'),
       this.db.all(`SELECT c.video_id,
           SUM(CASE WHEN c.status = 'open' AND r.status = 'submitted' THEN 1 ELSE 0 END) AS open_count,
@@ -329,6 +331,24 @@ class Portal {
     if (!v) throw notFound(`No version with id ${id}`);
     if (this.scope) await this.video(v.video_id);
     return v;
+  }
+  /**
+   * "Being revised": while set, clients can't watch or download any version of the video (they see
+   * "New version coming soon"). Uploading the next version clears it.
+   */
+  async setRevising(ids: string[], on: boolean, note?: string) {
+    this.staff();
+    const t = now();
+    const out: Row[] = [];
+    for (const id of ids) {
+      const v = await this.video(id);
+      const n = on ? String(note ?? '').trim().slice(0, 200) || null : null;
+      await this.db.run('UPDATE videos SET revising_at = ?, revising_note = ? WHERE id = ?', on ? t : null, n, id);
+      const proj = await this.projectOf(v.folder_id);
+      if (on && !v.revising_at) await this.log('video_revising', `A new version of “${v.title}” is being made${n ? `: ${n}` : ''}`, { video_id: v.id, folder_id: proj?.id });
+      out.push(await this.video(id));
+    }
+    return out;
   }
   async renameVideo(id: string, title: string) {
     await this.video(id);
@@ -437,7 +457,7 @@ class Portal {
       await this.db.run('INSERT INTO videos(id, title, folder_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?)', target.id, title, folderId, (min?.p ?? 1) - 1, t, t);
       outcome = 'new_video';
     } else {
-      await this.db.run('UPDATE videos SET updated_at = ? WHERE id = ?', t, target.id);
+      await this.db.run('UPDATE videos SET updated_at = ?, revising_at = NULL, revising_note = NULL WHERE id = ?', t, target.id);
       if (folderId) await this.db.run('UPDATE videos SET folder_id = ? WHERE id = ?', folderId, target.id);
     }
     const n = ((await this.db.first<{ n: number | null }>('SELECT MAX(number) AS n FROM versions WHERE video_id = ?', target.id))?.n || 0) + 1;
@@ -448,7 +468,7 @@ class Portal {
     const proj = await this.projectOf(video.folder_id);
     const where = proj ? ` in “${proj.name}”` : '';
     if (outcome === 'new_video') await this.log('video_added', `“${video.title}” uploaded${where}`, { video_id: video.id, folder_id: proj?.id });
-    else await this.log('version_added', `v${n} of “${video.title}” added${where}`, { video_id: video.id, folder_id: proj?.id });
+    else await this.log('version_added', target.revising_at ? `v${n} of “${video.title}” is ready to review${where}` : `v${n} of “${video.title}” added${where}`, { video_id: video.id, folder_id: proj?.id });
     return { outcome, video, version: toVersion(await this.version(id)) };
   }
   async putPoster(versionId: string, body: ReadableStream | null) {
@@ -660,7 +680,7 @@ class Portal {
       return {
         project_id: f.id, name: f.name, workspace: wsName.get(f.workspace_id) ?? null, status: f.status, status_label: STATUS_LABEL[f.status as Status], notes: f.notes, links: f.links,
         needs_cleanup: f.status === 'done' && !f.cleaned_at,
-        videos: videos.filter((v) => v.folder_id && ids.has(v.folder_id)).map((v) => ({ video_id: v.id, title: v.title, latest_version: v.latest?.number ?? null, open_revisions_sent: v.open_count })),
+        videos: videos.filter((v) => v.folder_id && ids.has(v.folder_id)).map((v) => ({ video_id: v.id, title: v.title, latest_version: v.latest?.number ?? null, open_revisions_sent: v.open_count, being_revised: !!v.revising_at, revising_note: v.revising_note ?? null })),
       };
     });
   }
@@ -863,6 +883,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (p === '/api/videos' && m === 'GET') return json(await app.listVideos());
   if (p === '/api/videos/move' && m === 'POST') { app.staff(); const b = await body(req); await app.moveVideos(b.ids || [], b.folder_id ?? null, b.before_id); return done({ ok: true }); }
   if (p === '/api/videos/remove' && m === 'POST') { app.staff(); return done(await app.removeVideos((await body(req)).ids || [])); }
+  if (p === '/api/videos/revising' && m === 'POST') { const b = await body(req); return done(await app.setRevising(Array.isArray(b.ids) ? b.ids : [], b.on !== false, b.note)); }
   if (p === '/api/videos/restore' && m === 'POST') { app.staff(); return done(await app.restoreVideos((await body(req)).ids || [])); }
   if ((mm = /^\/api\/videos\/([\w]+)\/submit$/.exec(p)) && m === 'POST') return done(await app.submit(mm[1]));
   if ((mm = /^\/api\/videos\/([\w]+)\/agent-message$/.exec(p))) return json({ text: await app.revisionsText(mm[1]) });
@@ -937,15 +958,16 @@ async function handleMedia(req: Request, env: Env) {
   const app = await new Portal(env, user).loadScope();
   let mm: RegExpExecArray | null;
   if ((mm = /^\/media\/([\w]+)$/.exec(p))) {
-    const v = await app.version(mm[1]).catch(() => null) as { key: string; filename: string } | null;
+    const v = await app.version(mm[1]).catch(() => null) as { key: string; filename: string; video_id: string } | null;
     if (!v) return json({ error: 'Not found' }, 404);
+    if (app.isClient && (await app.video(v.video_id)).revising_at) return json({ error: 'A new version is on its way.' }, 403);
     // ?download=1 saves the original file under its own name instead of playing it.
     const dl = new URL(req.url).searchParams.has('download');
     const ascii = v.filename.replace(/[^\x20-\x7e]+/g, '_').replace(/["\\]/g, '_');
     return serveObject(env, req, v.key, 'private, max-age=3600', dl ? { 'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(v.filename)}` } : {});
   }
   if ((mm = /^\/api\/versions\/([\w]+)\/poster\.jpg$/.exec(p))) {
-    const v = await app.version(mm[1]).catch(() => null) as { poster_key: string | null } | null;
+    const v = await app.version(mm[1]).catch(() => null) as { poster_key: string | null; video_id: string } | null;
     return v?.poster_key ? serveObject(env, req, v.poster_key, 'private, max-age=86400') : json({ error: 'No poster' }, 404);
   }
   if ((mm = /^\/audio\/((rev|rep)_[a-z0-9]+)-[\w.\-]+$/.exec(p))) {

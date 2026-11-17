@@ -11,7 +11,7 @@ import { tip } from './Tooltip';
 const KIND_LABEL: Record<Activity['kind'], string> = {
   video_added: 'Upload', version_added: 'New version', project_created: 'Project', project_moved: 'Moved',
   project_renamed: 'Renamed', project_updated: 'Updated', project_deleted: 'Deleted', agent_reply: 'Reply',
-  revision_resolved: 'Resolved', revisions_sent: 'Sent', project_cleaned: 'Cleaned', versions_cleared: 'Cleared',
+  revision_resolved: 'Resolved', revisions_sent: 'Sent', project_cleaned: 'Cleaned', versions_cleared: 'Cleared', video_revising: 'In progress',
 };
 
 /** Bell with a red dot when someone else (your editor, or Portal itself) did something since you last looked. */

@@ -1305,3 +1305,53 @@ html[data-dragging='video'] [data-drop-folder] {
 html[data-dragging] .folder-tile[data-drop-folder], html[data-dragging] .ws-tile { outline-offset: 2px; }
 html[data-dragging] .crumb[data-drop-folder] { outline: none; }
 html[data-dragging] [data-drop-hot], html[data-dragging] .drop-hot { outline: 2px solid var(--accent) !important; }
+
+/* List view also lists workspaces and projects as rows (so the grid/list toggle always does something). */
+.lib-body.is-list .folders { display: flex; flex-direction: column; gap: 6px; }
+.lib-body.is-list .folder-tile { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 0; padding: 8px 12px; }
+.lib-body.is-list .folder-art { grid-row: span 2; width: 40px; height: 30px; margin: 0; }
+.lib-body.is-list .folder-art img { display: none; }
+.lib-body.is-list .folder-back { inset: 4px 0 0; border-radius: 6px; }
+.lib-body.is-list .folder-back::before { top: -4px; height: 7px; }
+.lib-body.is-list .folder-front { inset: 9px 0 0; padding: 0; place-items: center; border-radius: 6px; }
+.lib-body.is-list .folder-front svg { width: 13px; height: 13px; }
+.lib-body.is-list .folder-name { grid-column: 2; }
+.lib-body.is-list .folder-meta { grid-column: 2; margin: 0; }
+.lib-body.is-list .ws-tile .ws-plate { grid-row: span 2; width: 36px; height: 36px; margin: 0; font-size: 15px; }
+.lib-body.is-list .ws-tile { min-height: 0; }
+
+/* Unread counts: a small recessed readout with red digits (like the time display), not a glossy ball. */
+.nav-count, .nav-count.plain {
+  min-width: 20px; height: 18px; padding: 0 5px; border-radius: 5px; margin-left: auto;
+  background: var(--well); box-shadow: var(--well-shadow);
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: -.02em;
+  color: var(--accent); text-shadow: 0 0 5px rgba(224,11,11,.35);
+}
+.nav-count.plain { color: var(--text-2); text-shadow: none; }
+/* Counts: a small round raised key with a grey number. */
+.nav-count, .nav-count.plain {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; margin-left: auto;
+  background: linear-gradient(180deg, #ffffff 0%, #efeaea 100%);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(11,4,4,.06), 0 0 0 .5px rgba(11,4,4,.2), 0 1px 2px rgba(11,4,4,.12);
+  font-family: var(--font); font-size: 11px; font-weight: 500; letter-spacing: 0;
+  color: var(--text-2); text-shadow: none;
+}
+
+/* =================== being revised =================== */
+.card-media.revising img, .row-thumb.revising img { filter: blur(14px) saturate(.7) brightness(.92); transform: scale(1.12); }
+.card-media.revising { overflow: hidden; }
+.coming-soon { position: absolute; inset: 0; z-index: 2; display: grid; place-content: center; text-align: center; gap: 3px; padding: 12px; color: #fff; border-radius: var(--r);
+  background: rgba(11,4,4,.28); text-shadow: 0 1px 6px rgba(0,0,0,.45); }
+.coming-soon b { font-family: var(--serif); font-weight: 400; font-size: 21px; letter-spacing: -.01em; line-height: 1.1; }
+.coming-soon span { font-size: 12px; opacity: .9; }
+.card-media.revising .card-play, .card-media.revising .card-dur { display: none; }
+.revising-tag { position: absolute; z-index: 3; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 560; color: #7a4a00; background: rgba(255,248,235,.94); box-shadow: inset 0 0 0 .5px rgba(160,100,0,.35), 0 2px 6px rgba(0,0,0,.2); }
+.revising-tag .led { width: 6px; height: 6px; }
+.coming-soon-stage { position: relative; flex: 1; width: 100%; min-height: 0; display: grid; place-items: center; border-radius: 14px; overflow: hidden; background: #111; }
+.coming-soon-stage > img { position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px); object-fit: cover; filter: blur(28px) brightness(.75); }
+.coming-soon-card { position: relative; max-width: 380px; margin: 20px; padding: 26px 28px; border-radius: 18px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.92); backdrop-filter: blur(10px); box-shadow: var(--key-raise), 0 24px 60px -20px rgba(0,0,0,.5); }
+.coming-soon-card h2 { margin: 4px 0 0; font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: -.01em; line-height: 1.05; }
+.coming-soon-card p { margin: 0; color: var(--text-2); }
+.nav-thumb.revising img { filter: blur(3px) saturate(.6); }

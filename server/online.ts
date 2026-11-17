@@ -123,3 +123,16 @@ export async function downloadOnline(video: string, opts: { version?: number; de
   } catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
   return { video_id: v.id, title: v.title, version: ver.number, path: out, size: fs.statSync(out).size };
 }
+
+/** Marks online videos (ids or titles) as being revised so clients see "New version coming soon", or clears it. */
+export async function setRevisingOnline(videos: string[], on: boolean, note?: string) {
+  const all = await call<any[]>('GET', '/api/videos');
+  const ids = videos.map((q) => {
+    const t = q.trim().toLowerCase();
+    const v = all.find((x) => x.id === q) ?? all.find((x) => x.title.toLowerCase() === t) ?? all.find((x) => x.title.toLowerCase().includes(t));
+    if (!v) throw new Error(`No video matching “${q}” online. Videos: ${all.map((x) => x.title).slice(0, 30).join(', ') || 'none'}`);
+    return v.id;
+  });
+  const out = await call<any[]>('POST', '/api/videos/revising', { ids: [...new Set(ids)], on, note });
+  return out.map((v) => ({ video_id: v.id, title: v.title, being_revised: !!v.revising_at, note: v.revising_note ?? null }));
+}

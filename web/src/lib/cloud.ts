@@ -145,3 +145,8 @@ export function downloadVersion(versionId: string) {
   a.click();
   a.remove();
 }
+
+/** Marks videos "being revised" (clients see "New version coming soon") or clears it. */
+export async function setRevising(ids: string[], on: boolean, note?: string) {
+  await req('POST', '/api/videos/revising', { ids, on, note });
+}

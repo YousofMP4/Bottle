@@ -63,7 +63,7 @@ export const COLUMN_TITLE: Record<ProjectStatus, string> = { ...STATUS_LABEL, do
 export const DONE_PRUNE_DAYS = 7;
 export interface ProjectLink { id: string; label: string; url: string }
 
-export type ActivityKind = 'video_added' | 'version_added' | 'project_created' | 'project_moved' | 'project_renamed' | 'project_updated' | 'project_deleted' | 'agent_reply' | 'revision_resolved' | 'revisions_sent' | 'project_cleaned' | 'versions_cleared';
+export type ActivityKind = 'video_added' | 'version_added' | 'project_created' | 'project_moved' | 'project_renamed' | 'project_updated' | 'project_deleted' | 'agent_reply' | 'revision_resolved' | 'revisions_sent' | 'project_cleaned' | 'versions_cleared' | 'video_revising';
 export interface Activity {
   id: string;
   kind: ActivityKind;
@@ -82,6 +82,9 @@ export interface Activity {
 export interface Video {
   id: string;
   title: string;
+  /** Online: a new version is being made; clients see "New version coming soon" instead of this cut. */
+  revising_at?: number | null;
+  revising_note?: string | null;
   folder_id?: string | null;
   position?: number;
   created_at: number;

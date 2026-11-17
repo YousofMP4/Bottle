@@ -170,7 +170,7 @@ export function Sidebar() {
               {...tip(v.title, undefined, { side: 'right', when: 'truncated', aria: false })}
             >
               {activeId === v.id && <motion.span layoutId="nav-active" className="nav-active" transition={spring.morph} />}
-              <span className="nav-thumb">{v.latest && <img src={posterUrl(v.latest.id)} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.opacity = '0')} />}</span>
+              <span className={`nav-thumb ${v.revising_at && client ? 'revising' : ''}`}>{v.latest && <img src={posterUrl(v.latest.id)} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.opacity = '0')} />}</span>
               <span className="nav-title">{v.title}</span>
               {v.open_count + v.draft_count > 0 && <span className="nav-count" aria-label={`${v.open_count + v.draft_count} open`}>{v.open_count + v.draft_count}</span>}
             </motion.button>

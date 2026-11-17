@@ -15,6 +15,7 @@ import { downloadVersion } from '../lib/cloud';
 import { IDownload } from './Icons';
 import { isClient, useIsClient } from '../lib/store';
 import { dropVideosOnWorkspace } from '../lib/dropVideos';
+import { setRevising } from '../lib/cloud';
 
 type Sort = 'recent' | 'custom' | 'name' | 'duration' | 'notes';
 type View = 'grid' | 'list';
@@ -135,6 +136,16 @@ export function Library() {
     }
     setSel(new Set());
   };
+  const toggleRevising = async (ids: string[]) => {
+    const on = !ids.every((id) => videos.find((x) => x.id === id)?.revising_at);
+    const note = on ? prompt('Note for the client (optional), e.g. “Tightening the intro”', '') : undefined;
+    if (on && note === null) return;
+    try {
+      await setRevising(ids, on, note || undefined);
+      toast({ text: on ? 'Marked as being revised' : 'Marked as ready', sub: on ? 'Clients see “New version coming soon” until the next version is uploaded.' : undefined, tone: 'accent' });
+    } catch (e: any) { toast({ text: e.message, tone: 'error' }); }
+    useStore.getState().loadVideos();
+  };
   const moveToWorkspace = async (id: string, wsId: string) => {
     const f = folders.find((x) => x.id === id);
     const w = workspaces.find((x) => x.id === wsId);
@@ -163,7 +174,7 @@ export function Library() {
   const videoMenu = (v: VideoSummary): MenuItem[] => {
     if (isClient()) return [
       { label: 'Play', icon: <IPlay size={13} />, kbd: '↩', run: () => playVideo(v.id) },
-      ...(v.latest ? [{ label: `Download v${v.latest.number}`, icon: <IDownload size={14} />, run: () => downloadVersion(v.latest!.id) } as MenuItem] : []),
+      ...(v.latest && !v.revising_at ? [{ label: `Download v${v.latest.number}`, icon: <IDownload size={14} />, run: () => downloadVersion(v.latest!.id) } as MenuItem] : []),
     ];
     const group = sel.has(v.id) && sel.size > 1 ? [...sel] : [v.id];
     const many = group.length > 1;
@@ -177,6 +188,7 @@ export function Library() {
     return [
       ...(many ? [] : [{ label: 'Play', icon: <IPlay size={13} />, kbd: '↩', run: () => playVideo(v.id) } as MenuItem]),
       ...(many ? [] : [{ label: 'Rename', kbd: '', run: () => setRenaming({ kind: 'video', id: v.id }) } as MenuItem]),
+      ...(CLOUD ? [{ label: group.every((id) => videos.find((x) => x.id === id)?.revising_at) ? 'Mark as ready (not being revised)' : 'Mark as being revised…', run: () => toggleRevising(group) } as MenuItem] : []),
       { label: many ? `Move ${group.length} videos to…` : 'Move to…', icon: <IFolder size={14} />, submenu: targets },
       'sep',
       ...(many ? [] : [
@@ -330,7 +342,7 @@ export function Library() {
       </header>
 
       <div className="lib-scroll" onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('lib-body')) setSel(new Set()); }} onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-drop-video], .folder-tile')) showMenu(e, emptyMenu()); }}>
-        <div className="lib-body">
+        <div className={`lib-body ${view === 'list' ? 'is-list' : ''}`}>
           {folder && !folder.parent_id && !query && <ProjectHeader f={folder} />}
           {query && <p className="lib-note">{shown.length ? `${shown.length} result${shown.length === 1 ? '' : 's'} in your whole library` : `Nothing matches “${query}”.`}</p>}
 
@@ -444,10 +456,12 @@ export function Library() {
                       transition={spring.soft}
                       {...(common as any)}
                     >
-                      <div className="card-media">
+                      <div className={`card-media ${v.revising_at && client ? 'revising' : ''}`}>
                         {v.latest && <img src={posterUrl(v.latest.id)} alt="" loading="lazy" draggable={false} onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                         <div className="card-fallback"><IFilm size={26} /></div>
-                        {v.latest && !drag && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} />}
+                        {v.latest && !drag && !(v.revising_at && client) && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} />}
+                        {v.revising_at && client && <div className="coming-soon"><b>New version coming soon</b>{v.revising_note && <span>{v.revising_note}</span>}</div>}
+                        {v.revising_at && !client && <span className="revising-tag"><i className="led amber" /> Being revised</span>}
                         <div className="card-play"><IPlay size={18} /></div>
                         <span className="card-badge mono">v{v.latest?.number ?? 1}</span>
                         {v.latest && <span className="card-dur">{tc(v.latest.duration)}</span>}
@@ -474,7 +488,7 @@ export function Library() {
                       transition={spring.soft}
                       {...(common as any)}
                     >
-                      <span className="row-thumb">{v.latest && <img src={posterUrl(v.latest.id)} alt="" draggable={false} />}{v.latest && !drag && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} compact />}<span className="card-badge mono">v{v.latest?.number ?? 1}</span></span>
+                      <span className={`row-thumb ${v.revising_at && client ? 'revising' : ''}`}>{v.latest && <img src={posterUrl(v.latest.id)} alt="" draggable={false} />}{v.latest && !drag && <HoverScrub versionId={v.latest.id} duration={v.latest.duration} compact />}<span className="card-badge mono">v{v.latest?.number ?? 1}</span></span>
                       <span className="row-name">{title}{folderName && <span className="dim small"> · {folderName}</span>}</span>
                       <span className="row-notes">{notes}</span>
                       <span className="mono dim">{v.latest ? tc(v.latest.duration) : '–'}</span>

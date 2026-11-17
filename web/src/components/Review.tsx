@@ -17,6 +17,8 @@ import { CLOUD } from '../lib/cloud';
 import { downloadVersion } from '../lib/cloud';
 import { IDownload } from './Icons';
 import { isClient } from '../lib/store';
+import { setRevising } from '../lib/cloud';
+import { posterUrl } from '../lib/api';
 
 export function Review({ id }: { id: string }) {
   const detail = useStore((s) => (s.detail?.video.id === id ? s.detail : null));
@@ -44,12 +46,28 @@ export function Review({ id }: { id: string }) {
   return (
     <div className="review">
       <div className="review-main">
-        <TopBar title={detail.video.title} videoId={detail.video.id} versionId={version.id} versionNumber={version.number} unsent={unsent} />
-        <div className="stage-area">
-          <Stage version={version} comments={comments} onBox={(w, stage) => setBox({ w, stage })} />
-          <FeedbackBar version={version} width={fbWidth} />
-        </div>
-        <Transport version={version} versions={detail.versions} comments={comments} onComposeAt={(t) => composer.focus(t)} />
+        <TopBar title={detail.video.title} videoId={detail.video.id} versionId={version.id} versionNumber={version.number} unsent={unsent} revising={!!detail.video.revising_at} />
+        {detail.video.revising_at && isClient() ? (
+          <div className="stage-area">
+            <div className="coming-soon-stage">
+              <img src={posterUrl(version.id)} alt="" />
+              <div className="coming-soon-card">
+                <span className="led amber blink" />
+                <h2>New version coming soon</h2>
+                <p>{detail.video.revising_note || 'Gleam Films is working on the next cut of this video.'}</p>
+                <p className="dim small">You’ll get a notification when it’s ready to review.</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="stage-area">
+              <Stage version={version} comments={comments} onBox={(w, stage) => setBox({ w, stage })} />
+              <FeedbackBar version={version} width={fbWidth} />
+            </div>
+            <Transport version={version} versions={detail.versions} comments={comments} onComposeAt={(t) => composer.focus(t)} />
+          </>
+        )}
       </div>
       <FloatingComposer />
       <AnimatePresence initial={false}>
@@ -72,7 +90,7 @@ export function Review({ id }: { id: string }) {
   );
 }
 
-function TopBar({ title, videoId, versionId, versionNumber, unsent }: { title: string; videoId: string; versionId: string; versionNumber: number; unsent: number }) {
+function TopBar({ title, videoId, versionId, versionNumber, unsent, revising }: { title: string; videoId: string; versionId: string; versionNumber: number; unsent: number; revising: boolean }) {
   const go = useStore((s) => s.go);
   const set = useStore((s) => s.set);
   const panelOpen = useStore((s) => s.panelOpen);
@@ -121,7 +139,14 @@ function TopBar({ title, videoId, versionId, versionNumber, unsent }: { title: s
           {(close) => (
             <div className="menu">
               {!isClient() && <button className="menu-item" onClick={() => { close(); setEditing(true); }}>Rename</button>}
-              {CLOUD && <button className="menu-item" onClick={() => { close(); downloadVersion(versionId); }}><IDownload size={15} /> Download v{versionNumber}</button>}
+              {CLOUD && !(revising && isClient()) && <button className="menu-item" onClick={() => { close(); downloadVersion(versionId); }}><IDownload size={15} /> Download v{versionNumber}</button>}
+              {CLOUD && !isClient() && <button className="menu-item" onClick={async () => {
+                close();
+                const note = revising ? undefined : prompt('Note for the client (optional), e.g. “Tightening the intro”', '');
+                if (!revising && note === null) return;
+                await setRevising([videoId], !revising, note || undefined).catch((e) => useStore.getState().toast({ text: e.message, tone: 'error' }));
+                useStore.getState().loadDetail(videoId); useStore.getState().loadVideos();
+              }}>{revising ? 'Mark as ready (not being revised)' : 'Mark as being revised…'}</button>}
               {!CLOUD && <button className="menu-item" onClick={() => { close(); api.reveal(versionId); }}><IFolder size={15} /> Show file in Finder</button>}
               {!isClient() && <><div className="menu-sep" />
               <button className="menu-item danger" onClick={() => { close(); askRemove([videoId]); }}>
