@@ -1,0 +1,17 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  root: 'web',
+  plugins: [react()],
+  build: { outDir: '../dist/web', emptyOutDir: true, target: 'es2022' },
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    proxy: {
+      '/api': 'http://127.0.0.1:4317',
+      '/media': 'http://127.0.0.1:4317',
+      '/audio': 'http://127.0.0.1:4317',
+    },
+  },
+});

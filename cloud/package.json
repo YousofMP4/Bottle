@@ -1,0 +1,21 @@
+{
+  "name": "portal-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-rc.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "cf": "^1.0.0-rc.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "allowScripts": {
+    "workerd": true,
+    "esbuild": true
+  }
+}
